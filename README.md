@@ -2,6 +2,9 @@
 
 日本で英語学習を始める小学生から、中学生・高校生までの学習の流れを1本につなげた学習計画サイトです。
 
+🌐 **公開URL: https://english-learning-roadmap.vercel.app**
+📦 リポジトリ: https://github.com/ibyichi-gif/english-learning-roadmap
+
 ## 特徴
 
 - **小学生 → 中学生 → 高校生** の連続した学習フローを可視化
