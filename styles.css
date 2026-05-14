@@ -506,3 +506,68 @@ button { font-family: inherit; cursor: pointer; }
 .substep-feedback p { color: var(--ink-soft); }
 
 .text-input.shake { animation: shake 0.4s; }
+
+/* ===== 学年目安バッジ ===== */
+.grade-badge {
+  display: inline-block; font-size: 0.7rem; font-weight: 700; color: #fff;
+  background: #5b6776; padding: 2px 9px; border-radius: 999px; white-space: nowrap;
+}
+.grade-badge.lg { font-size: 0.78rem; padding: 3px 12px; }
+.grade-badge.sm { font-size: 0.66rem; padding: 1px 7px; background: #8b97a6; }
+.unit-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.unit-header-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 4px; }
+.stage-note {
+  background: #fffaf0; border: 1px solid #f0e2c4; border-radius: 10px;
+  padding: 11px 15px; font-size: 0.85rem; color: var(--ink-soft); margin: 12px 0 4px;
+}
+
+/* ===== ストリーク ===== */
+.streak-badge {
+  font-size: 0.78rem; font-weight: 800; color: #c2410c;
+  background: #fff1e6; border: 1px solid #f6c9a3; border-radius: 999px;
+  padding: 3px 11px; margin-right: 4px; white-space: nowrap;
+}
+
+/* ===== 復習センター ===== */
+.review-banner {
+  display: block; width: 100%; text-align: left; margin-top: 18px;
+  background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.4);
+  color: #fff; border-radius: 12px; padding: 12px 16px; font-size: 0.9rem;
+}
+.review-banner:hover { background: rgba(255,255,255,0.24); }
+.wrap .review-banner {
+  background: #fff7ed; border: 1px solid #f6c9a3; color: #b45309; box-shadow: var(--shadow-sm);
+  margin: 4px 0 8px;
+}
+.review-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 18px 20px; box-shadow: var(--shadow-sm); margin-bottom: 14px;
+}
+.review-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.review-emoji { font-size: 1.4rem; }
+.review-card-head h3 { font-size: 1.05rem; }
+.review-desc { font-size: 0.88rem; color: var(--ink-soft); margin-bottom: 12px; }
+.review-empty { font-size: 0.85rem; color: var(--ink-faint); }
+.review-tag {
+  font-size: 0.72rem; font-weight: 700; background: #fff1e6; color: #c2410c;
+  padding: 2px 10px; border-radius: 999px;
+}
+
+/* ===== 音声読み上げボタン ===== */
+.tts-btn {
+  border: none; background: #eef3ff; border-radius: 8px; padding: 2px 8px;
+  font-size: 0.95rem; line-height: 1.4; vertical-align: middle; margin-left: 4px;
+}
+.tts-btn:hover { background: #dce8ff; }
+.tts-btn:active { transform: scale(0.92); }
+
+/* ===== ヒント ===== */
+.hint-btn { border: 1.5px dashed #f0c98a; color: #b45309; }
+.hint-btn:hover:not(:disabled) { background: #fff7ed; }
+.hint-btn:disabled { opacity: 0.5; }
+.hint-box {
+  background: #fffaf0; border: 1px solid #f0e2c4; border-left: 4px solid #e3a008;
+  border-radius: 0 10px 10px 0; padding: 10px 14px; margin: 10px 0 4px;
+}
+.hint-label { display: inline-block; font-size: 0.72rem; font-weight: 800; color: #b45309; margin-bottom: 3px; }
+.hint-box p { font-size: 0.86rem; color: var(--ink-soft); }

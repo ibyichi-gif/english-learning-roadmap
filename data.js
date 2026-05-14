@@ -871,6 +871,57 @@ const MEDALS = [
   { key: "silver", label: "銀メダル", emoji: "🥈", runs: 1 },
 ];
 
+/* 単元ごとの学年目安（order が小さいほど早く・上に並ぶ）
+   小学生は order 1 = 小1から始められる単元。区分ページは order 順に並ぶ。 */
+const UNIT_GRADE = {
+  // 小学生（小1〜から積み上げられる）
+  "el-phonics": { label: "小1〜", order: 1 },
+  "el-words": { label: "小1〜", order: 1 },
+  "el-greeting": { label: "小1〜", order: 1 },
+  "el-be": { label: "小3〜", order: 3 },
+  "el-verb": { label: "小3〜", order: 3 },
+  "el-question": { label: "小4〜", order: 4 },
+  // 中学生
+  "jr-be-verb": { label: "中1〜", order: 1 },
+  "jr-third-s": { label: "中1〜", order: 1 },
+  "jr-past": { label: "中1〜", order: 1 },
+  "jr-progressive": { label: "中1〜", order: 1 },
+  "jr-future": { label: "中2〜", order: 2 },
+  "jr-modal": { label: "中2〜", order: 2 },
+  "jr-compare": { label: "中2〜", order: 2 },
+  "jr-infinitive": { label: "中2〜", order: 2 },
+  "jr-perfect": { label: "中3〜", order: 3 },
+  "jr-passive": { label: "中3〜", order: 3 },
+  "jr-relative": { label: "中3〜", order: 3 },
+  "jr-vocab": { label: "中3〜", order: 3 },
+  // 高校生
+  "sr-sentence": { label: "高1〜", order: 1 },
+  "sr-tense": { label: "高1〜", order: 1 },
+  "sr-reading-1": { label: "高1〜", order: 1 },
+  "sr-modal-perfect": { label: "高2〜", order: 2 },
+  "sr-subjunctive": { label: "高2〜", order: 2 },
+  "sr-relative-adv": { label: "高2〜", order: 2 },
+  "sr-participle": { label: "高2〜", order: 2 },
+  "sr-reading-2": { label: "高2〜", order: 2 },
+  "sr-vocab-freq": { label: "高2〜", order: 2 },
+  "sr-long-reading": { label: "高3〜", order: 3 },
+  "sr-vocab": { label: "高3〜", order: 3 },
+};
+
+/* SRS（間隔反復）: 連続正解数に応じた次回復習までの日数 */
+const SRS_INTERVALS = [1, 3, 7, 16, 35];
+
+/* 問題タイプ別の汎用ヒント（個別の hint / points が無いときの土台）。
+   答えではなく「解き方の入口」を示し、内容の把握を助ける。 */
+const GENERIC_HINT = {
+  choice: "選択肢をひとつずつ確かめ、当てはまらないものを消していこう。問題文の日本語と、習った形を結びつけて考えよう。",
+  pos: "まず文全体の動詞(V)を見つけよう。下線部がその前なら主語、後ろなら目的語・補語・修飾語のどれかを考える。",
+  input: "問題文の日本語をよく読み、その意味になる『習った形』を思い出そう。つづりも落ち着いて確認。",
+  order: "まず『だれが（主語）』『どうする（動詞）』を決め、その後ろに目的語や説明の語を並べていこう。",
+  label: "まず動詞(V)を1つ見つけよう。その前のまとまりが主語(S)、後ろが目的語(O)・補語(C)。時・場所などの説明は修飾語(M)。",
+  steps: "あせらず STEP を1つずつ。まず主語(S)と動詞(V)をはっきりさせてから、設問の問いに戻ろう。",
+};
+
 /* 学習のコツ（英語学習の進め方ガイド） */
 const STUDY_TIPS = {
   intro:

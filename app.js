@@ -1,13 +1,14 @@
 /* =========================================================
-   英語習熟トレーナー  アプリ本体（SPA）
-   atama+「高校英語ガイド」の実画面仕様を反映:
+   英語習熟トレーナー  アプリ本体（SPA）  v3
+   学習目的: 内容の「把握」と「定着」
    - 合格までのステップ（診断 → 講義 → 演習）
-   - 演習は「選択 → 解答する」の2段階＋「わからない」ボタン
-   - 解説は「模範解説 → ポイント（手順）→ さらに詳しい解説（折りたたみ）」
-   - 英文読解は steps 型（S/V/文型…を踏ませてから設問）
-   - 品詞識別は label 型（各まとまりに S/V/O/C/M を割り当て）
-   - 単元は難易度3段階（基礎・標準・発展）、経過タイマー表示
-   - 記憶度は 覚えた / うろ覚え / 苦手 / 未判定
+   - 演習は「選択 → 解答する」2段階＋「わからない」＋「💡ヒント」
+   - 解説は「模範解説 → ポイント → さらに詳しい解説」
+   - ステップ型読解 / 品詞識別 / 難易度3段階 / 経過タイマー
+   - 🔊 音声読み上げ（Web Speech API）
+   - 本格SRS（間隔反復）＋復習センター（今日の復習 / 弱点復習）
+   - 間違いだけ再挑戦 / 学習ストリーク（連続学習日数）
+   - 小学生は学年目安（小1〜）順に並び、1年生から積み上げられる
    ========================================================= */
 
 const STORE_KEY = "eng-mastery-trainer-v2";
@@ -16,9 +17,15 @@ const STORE_KEY = "eng-mastery-trainer-v2";
 function loadProgress() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const p = JSON.parse(raw);
+      p.units = p.units || {};
+      p.problems = p.problems || {};
+      p.streak = p.streak || 0;
+      return p;
+    }
   } catch (e) {}
-  return { studyMode: "detail", units: {}, problems: {} };
+  return { studyMode: "detail", units: {}, problems: {}, streak: 0, lastStudyDate: null };
 }
 function saveProgress() {
   try {
@@ -38,15 +45,19 @@ function getUnit(unitId) {
   }
   return null;
 }
+function gradeOf(unitId) {
+  return UNIT_GRADE[unitId] || { label: "", order: 9 };
+}
+/* 区分の単元を学年目安（order）順に並べる。小1の学習者は先頭から積み上げられる。 */
+function sortedUnits(stage) {
+  return stage.units
+    .map((u, i) => ({ u, i }))
+    .sort((a, b) => gradeOf(a.u.id).order - gradeOf(b.u.id).order || a.i - b.i)
+    .map((x) => x.u);
+}
 function unitState(unitId) {
   if (!progress.units[unitId]) {
-    progress.units[unitId] = {
-      diagnosed: false,
-      lectureDone: false,
-      bestScore: 0,
-      attempts: 0,
-      perfectRuns: 0,
-    };
+    progress.units[unitId] = { diagnosed: false, lectureDone: false, bestScore: 0, attempts: 0, perfectRuns: 0 };
   }
   return progress.units[unitId];
 }
@@ -55,25 +66,15 @@ function masteryOf(unitId) {
   if (!st || st.attempts === 0) return MASTERY_LEVELS[0];
   const score = st.bestScore;
   let level = MASTERY_LEVELS[1];
-  for (const lv of MASTERY_LEVELS) {
-    if (lv.min >= 0 && score >= lv.min) level = lv;
-  }
+  for (const lv of MASTERY_LEVELS) if (lv.min >= 0 && score >= lv.min) level = lv;
   return level;
 }
 function medalOf(unitId) {
   const st = progress.units[unitId];
   if (!st) return null;
-  for (const m of MEDALS) {
-    if (st.perfectRuns >= m.runs) return m;
-  }
+  for (const m of MEDALS) if (st.perfectRuns >= m.runs) return m;
   return null;
 }
-function isDueForReview(unitId) {
-  const st = progress.units[unitId];
-  if (!st || !st.attempts || !st.lastStudied) return false;
-  return (Date.now() - st.lastStudied) / 86400000 >= 1;
-}
-/* 難易度: 明示があればそれ、なければ問題の並び位置で 基礎/標準/発展 */
 const DIFF_META = {
   基礎: { color: "#16a34a" },
   標準: { color: "#2f6fed" },
@@ -112,6 +113,88 @@ function stageProgress(stage) {
   return { total, passed, avg: Math.round(scoreSum / total) };
 }
 
+/* ---------- SRS（間隔反復） ---------- */
+function scheduleSrs(p, correct) {
+  p.srs = p.srs || { streak: 0, due: 0 };
+  if (correct) {
+    p.srs.streak = Math.min(p.srs.streak + 1, SRS_INTERVALS.length);
+    const days = SRS_INTERVALS[p.srs.streak - 1];
+    p.srs.due = Date.now() + days * 86400000;
+  } else {
+    p.srs.streak = 0;
+    p.srs.due = Date.now() + 86400000; // 翌日に再挑戦
+  }
+}
+function isProblemDue(p) {
+  return !!(p && p.srs && p.srs.due && p.srs.due <= Date.now());
+}
+function collectProblems(filterFn) {
+  const out = [];
+  CURRICULUM.forEach((stage) =>
+    stage.units.forEach((u) =>
+      u.exercises.forEach((ex, idx) => {
+        const p = progress.problems[problemKey(u.id, idx)];
+        if (filterFn(p, u, idx, ex)) out.push({ ex, idx, unitId: u.id, unitTitle: u.title, stage: stage.stage });
+      })
+    )
+  );
+  return out;
+}
+const dueProblems = () => collectProblems((p) => isProblemDue(p));
+const weakProblems = () =>
+  collectProblems((p) => {
+    if (!p) return false;
+    const s = p.last === "wrong" ? "weak" : p.wrongCount > 0 ? "vague" : "learned";
+    return s === "weak" || s === "vague";
+  });
+
+/* ---------- 学習ストリーク（連続学習日数） ---------- */
+function dateStr(d) {
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+function updateStreak() {
+  const today = dateStr(new Date());
+  if (progress.lastStudyDate === today) return;
+  const y = new Date();
+  y.setDate(y.getDate() - 1);
+  progress.streak = progress.lastStudyDate === dateStr(y) ? (progress.streak || 0) + 1 : 1;
+  progress.lastStudyDate = today;
+  saveProgress();
+}
+function renderStreak() {
+  const b = document.getElementById("streakBadge");
+  if (!b) return;
+  if (progress.streak > 0) {
+    b.hidden = false;
+    b.textContent = "🔥 " + progress.streak + "日連続";
+  } else b.hidden = true;
+}
+
+/* ---------- 音声読み上げ（Web Speech API） ---------- */
+function speak(text) {
+  if (!text || typeof window === "undefined" || !window.speechSynthesis) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "en-US";
+  u.rate = 0.92;
+  window.speechSynthesis.cancel();
+  window.speechSynthesis.speak(u);
+}
+function englishOf(text) {
+  const m = String(text).match(/[A-Za-z][A-Za-z0-9 .,'?!:;()\-]*/g);
+  if (!m) return "";
+  return m
+    .map((s) => s.trim())
+    .filter((s) => s.length > 1)
+    .join(". ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+function ttsBtn(text) {
+  const eng = englishOf(text);
+  if (!eng) return "";
+  return `<button class="tts-btn" data-speak="${escapeHtml(eng)}" type="button" title="英語を読み上げる" aria-label="英語を読み上げる">🔊</button>`;
+}
+
 /* ---------- ユーティリティ ---------- */
 function el(html) {
   const t = document.createElement("template");
@@ -133,8 +216,6 @@ function fmtTime(ms) {
   const s = Math.floor(ms / 1000);
   return String(Math.floor(s / 60)).padStart(2, "0") + "分" + String(s % 60).padStart(2, "0") + "秒";
 }
-
-/* 構造化解説（模範解説 → ポイント → さらに詳しい解説） */
 function explanationHtml(ex) {
   let html = `<div class="exp-block"><span class="exp-label">模範解説</span><p>${escapeHtml(ex.explain || "")}</p></div>`;
   if (ex.points && ex.points.length) {
@@ -147,6 +228,12 @@ function explanationHtml(ex) {
   }
   return html;
 }
+function hintTextOf(ex) {
+  if (ex.hint) return ex.hint;
+  if (ex.points && ex.points.length) return ex.points[0];
+  if (ex.type && typeof GENERIC_HINT !== "undefined" && GENERIC_HINT[ex.type]) return GENERIC_HINT[ex.type];
+  return "";
+}
 
 /* ---------- ルーティング ---------- */
 const app = document.getElementById("app");
@@ -154,6 +241,8 @@ let route = { name: "home" };
 let timerInterval = null;
 
 function navigate(name, params) {
+  // 演習から離れるときはセッションを破棄（中断状態を残さない）
+  if (route.name === "exercise" && name !== "exercise" && session) session = null;
   route = Object.assign({ name }, params || {});
   window.scrollTo(0, 0);
   render();
@@ -164,14 +253,16 @@ function render() {
     timerInterval = null;
   }
   renderGlobalProgress();
+  renderStreak();
   if (route.name === "home") return renderHome();
   if (route.name === "tips") return renderTips();
   if (route.name === "status") return renderStatus();
+  if (route.name === "review") return renderReview();
   if (route.name === "stage") return renderStage(route.stageId);
   if (route.name === "unit") return renderUnit(route.unitId);
   if (route.name === "lecture") return renderLecture(route.unitId);
   if (route.name === "diagnosis") return renderDiagnosis(route.unitId);
-  if (route.name === "exercise") return renderExercise(route.unitId);
+  if (route.name === "exercise") return renderExercise();
   renderHome();
 }
 
@@ -194,6 +285,7 @@ function renderGlobalProgress() {
 /* ---------- ホーム ---------- */
 function renderHome() {
   const mode = progress.studyMode || "detail";
+  const due = dueProblems().length;
   const stagesHtml = CURRICULUM.map((stage) => {
     const p = stageProgress(stage);
     const pct = Math.round((p.passed / p.total) * 100);
@@ -218,14 +310,21 @@ function renderHome() {
     )
     .join("");
 
+  const reviewBanner =
+    due > 0
+      ? `<button class="review-banner" data-nav="review" type="button">
+           🔁 <strong>今日の復習が ${due}問</strong> たまっています — 復習センターへ
+         </button>`
+      : "";
+
   app.innerHTML = `
     <section class="hero">
       <div class="wrap">
-        <h1>英語を「区分 × 学習単元」で<br />習熟していく学習アプリ</h1>
-        <p class="hero-lead">小学生・中学生・高校生の3区分。各学習単元を「診断 → 講義 → 演習」で進めます。
-        演習は<strong>選択して「解答する」</strong>の2段階。当てずっぽうを防ぐ<strong>「わからない」</strong>ボタン、
-        <strong>模範解説＋ポイント＋詳しい解説</strong>、英文読解の<strong>ステップ型</strong>問題、品詞識別など、
-        実際の学習画面に近い形で習熟を進められます。</p>
+        <h1>英語を「区分 × 学習単元」で<br />把握し、定着させる学習アプリ</h1>
+        <p class="hero-lead">小学生・中学生・高校生の3区分。各単元を「診断 → 講義 → 演習」で進め、
+        <strong>💡ヒント</strong>と<strong>模範解説</strong>で内容を<strong>把握</strong>。
+        <strong>🔊音声読み上げ</strong>・<strong>間隔反復の復習</strong>・<strong>連続学習</strong>で<strong>定着</strong>させます。</p>
+        ${reviewBanner}
         <div class="mode-row">
           <span class="mode-row-label">学習の進め方</span>
           <div class="mode-pills">${modeBtns}</div>
@@ -265,16 +364,50 @@ function renderTips() {
     </section>`;
 }
 
+/* ---------- 復習センター ---------- */
+function renderReview() {
+  const due = dueProblems();
+  const weak = weakProblems();
+  app.innerHTML = `
+    <section class="wrap narrow">
+      <button class="back-link" data-nav="home" type="button">← ホーム</button>
+      <h1 class="page-title">復習センター</h1>
+      <p class="tips-intro">間隔反復（翌日 → 3日 → 7日 → 16日 → 35日）で、忘れる前に復習して定着させます。</p>
+
+      <div class="review-card">
+        <div class="review-card-head"><span class="review-emoji">🔁</span><h3>今日の復習</h3></div>
+        <p class="review-desc">復習のタイミングが来た問題：<strong>${due.length}問</strong></p>
+        ${
+          due.length
+            ? `<button class="btn primary wide" data-review-start="due" type="button">今日の復習を始める（${due.length}問）</button>`
+            : `<p class="review-empty">いまは復習予定の問題はありません。演習を進めると、復習日が自動で設定されます。</p>`
+        }
+      </div>
+
+      <div class="review-card">
+        <div class="review-card-head"><span class="review-emoji">🔴</span><h3>弱点をまとめて復習</h3></div>
+        <p class="review-desc">「苦手」「うろ覚え」の問題：<strong>${weak.length}問</strong></p>
+        ${
+          weak.length
+            ? `<button class="btn primary wide" data-review-start="weak" type="button">弱点を復習する（${weak.length}問）</button>`
+            : `<p class="review-empty">弱点として記録された問題はありません。よくできています！</p>`
+        }
+      </div>
+    </section>`;
+}
+
 /* ---------- 区分（単元一覧） ---------- */
 function renderStage(stageId) {
   const stage = getStage(stageId);
   if (!stage) return navigate("home");
-  const unitsHtml = stage.units
+  const units = sortedUnits(stage);
+  const unitsHtml = units
     .map((u, i) => {
       const m = masteryOf(u.id);
       const medal = medalOf(u.id);
       const st = progress.units[u.id];
       const score = st ? st.bestScore : 0;
+      const g = gradeOf(u.id);
       return `
       <button class="unit-row" data-go-unit="${u.id}" type="button">
         <span class="unit-no">${i + 1}</span>
@@ -285,6 +418,7 @@ function renderStage(stageId) {
           <span class="unit-goal">${u.goal}</span>
         </span>
         <span class="unit-meta">
+          ${g.label ? `<span class="grade-badge">${g.label}</span>` : ""}
           <span class="mastery-badge" style="background:${m.color}">${m.label}</span>
           <span class="unit-score">${st && st.attempts ? score + "%" : "未挑戦"}</span>
         </span>
@@ -292,6 +426,10 @@ function renderStage(stageId) {
     })
     .join("");
   const p = stageProgress(stage);
+  const elemNote =
+    stage.id === "elementary"
+      ? `<p class="stage-note">📌 小学1年生からでも、<strong>いちばん上の単元から順に</strong>始められます。学年目安（小1〜）のバッジを参考に、自分の位置から積み上げましょう。</p>`
+      : "";
   app.innerHTML = `
     <section class="wrap">
       <button class="back-link" data-nav="home" type="button">← ホーム</button>
@@ -300,7 +438,8 @@ function renderStage(stageId) {
         <p>${stage.desc}</p>
         <div class="stage-header-stat">合格 ${p.passed}/${p.total} ・ 平均習熟 ${p.avg}%</div>
       </div>
-      <h2 class="section-title">学習単元（上から順に進めるのが基本）</h2>
+      ${elemNote}
+      <h2 class="section-title">学習単元（学年目安の早い順。上から進めるのが基本）</h2>
       <div class="unit-list">${unitsHtml}</div>
     </section>`;
 }
@@ -314,12 +453,11 @@ function renderUnit(unitId) {
   const mode = progress.studyMode || "detail";
   const m = masteryOf(unitId);
   const medal = medalOf(unitId);
+  const g = gradeOf(unitId);
 
-  // 難易度構成の集計
   const diffCount = { 基礎: 0, 標準: 0, 発展: 0 };
   unit.exercises.forEach((_, i) => diffCount[difficultyOf(unit, i)]++);
 
-  // おすすめステップ
   let rec = "exercise";
   if (mode === "detail") {
     if (!st.diagnosed) rec = "diagnosis";
@@ -351,7 +489,10 @@ function renderUnit(unitId) {
     <section class="wrap">
       <button class="back-link" data-go-stage="${stage.id}" type="button">← ${stage.stage}の単元一覧</button>
       <div class="unit-header" style="--c:${stage.color}">
-        <span class="stage-chip" style="background:${stage.color}">${stage.stage}</span>
+        <div class="unit-header-top">
+          <span class="stage-chip" style="background:${stage.color}">${stage.stage}</span>
+          ${g.label ? `<span class="grade-badge lg">学年目安 ${g.label}</span>` : ""}
+        </div>
         <h1>${unit.title} <span class="tier-mark big">+++</span> ${medal ? `<span class="medal lg">${medal.emoji}</span>` : ""}</h1>
         <p class="unit-header-goal"><strong>この単元のゴール：</strong>${unit.goal}</p>
         <div class="tier-row">
@@ -385,7 +526,7 @@ function renderUnit(unitId) {
         ${stepCard(
           "✏️",
           mode === "detail" ? "3. 演習で定着させる" : "2. 演習で定着させる",
-          `全${exTotal}問。選択・並べ替え・入力・品詞識別・ステップ型読解で習熟を測る。`,
+          `全${exTotal}問。💡ヒント・🔊音声・構造化解説つき。解いた問題は復習日が自動設定されます。`,
           st.bestScore > 0,
           "exercise",
           rec === "exercise",
@@ -441,21 +582,37 @@ let session = null;
 function startExercise(unitId) {
   const { unit } = getUnit(unitId);
   session = {
+    mode: "unit",
     unitId,
-    items: unit.exercises.map((ex, idx) => ({ ex, idx })),
+    items: unit.exercises.map((ex, idx) => ({ ex, idx, unitId })),
     pos: 0,
     correct: 0,
     answered: false,
     results: [],
     startTime: Date.now(),
-    sub: { pos: 0, picks: [] }, // steps/label 用のサブ状態
+    sub: { pos: 0, log: [] },
+    hintUsed: false,
   };
-  renderExercise(unitId);
+  renderExercise();
+}
+function startCustomSession(items, label) {
+  if (!items.length) return;
+  session = {
+    mode: "review",
+    reviewLabel: label,
+    items: items.map((it) => ({ ex: it.ex, idx: it.idx, unitId: it.unitId })),
+    pos: 0,
+    correct: 0,
+    answered: false,
+    results: [],
+    startTime: Date.now(),
+    sub: { pos: 0, log: [] },
+    hintUsed: false,
+  };
+  navigate("exercise");
 }
 
 function startTimer() {
-  const span = document.getElementById("exTimer");
-  if (!span || !session) return;
   const tick = () => {
     const s = document.getElementById("exTimer");
     if (s && session) s.textContent = fmtTime(Date.now() - session.startTime);
@@ -464,27 +621,43 @@ function startTimer() {
   timerInterval = setInterval(tick, 1000);
 }
 
-function renderExercise(unitId) {
+function renderExercise() {
   if (timerInterval) {
     clearInterval(timerInterval);
     timerInterval = null;
   }
-  if (!session || session.unitId !== unitId) return startExercise(unitId);
-  const { unit, stage } = getUnit(unitId);
+  if (!session) {
+    if (route.unitId) return startExercise(route.unitId);
+    return navigate("home");
+  }
+  if (session.mode === "unit" && route.unitId && session.unitId !== route.unitId) {
+    return startExercise(route.unitId);
+  }
   const total = session.items.length;
-  if (session.pos >= total) return renderExerciseResult(unitId);
+  if (session.pos >= total) return renderExerciseResult();
 
-  const { ex, idx } = session.items[session.pos];
+  const item = session.items[session.pos];
+  const ex = item.ex,
+    idx = item.idx,
+    itemUnitId = item.unitId;
+  const unit = getUnit(itemUnitId).unit;
   const diff = difficultyOf(unit, idx);
-  const pstatus = problemStatus(unitId, idx);
+  const pstatus = problemStatus(itemUnitId, idx);
   const statusTag = pstatus
     ? `<span class="pstatus" style="color:${STATUS_META[pstatus].color}">${STATUS_META[pstatus].emoji} ${STATUS_META[pstatus].label}</span>`
     : `<span class="pstatus" style="color:#8b97a6">⚪ 未判定</span>`;
   const typeLabel = { choice: "選択式", order: "並べ替え式", input: "入力式", pos: "品詞選択", label: "品詞識別", steps: "ステップ型読解" }[ex.type];
 
+  const backBtn =
+    session.mode === "review"
+      ? `<button class="back-link" data-nav="review" type="button">← 復習をやめる</button>`
+      : `<button class="back-link" data-go-unit="${itemUnitId}" type="button">← 演習をやめる</button>`;
+  const sessionTag =
+    session.mode === "review" ? `<span class="review-tag">🔁 ${escapeHtml(session.reviewLabel || "復習")}</span>` : "";
+
   app.innerHTML = `
     <section class="wrap narrow">
-      <button class="back-link" data-go-unit="${unitId}" type="button">← 演習をやめる</button>
+      ${backBtn}
       <div class="ex-progress">
         <div class="ex-progress-bar"><div style="width:${(session.pos / total) * 100}%"></div></div>
         <span class="ex-counter">問題 ${session.pos + 1} / ${total}</span>
@@ -492,6 +665,7 @@ function renderExercise(unitId) {
       </div>
       <div class="panel ex-panel">
         <div class="ex-head">
+          ${sessionTag}
           <span class="ex-type">${typeLabel}</span>
           <span class="diff-badge" style="background:${DIFF_META[diff].color}">${diff}</span>
           <span class="ex-correct">正解 ${session.correct}</span>
@@ -512,13 +686,42 @@ function renderExercise(unitId) {
   else if (ex.type === "steps") renderSteps(ex, idx, body);
 }
 
+/* ヒント箱 */
+function hintBoxHtml() {
+  return `<div class="hint-box" id="hintBox" hidden></div>`;
+}
+function hintButton(ex) {
+  if (!hintTextOf(ex)) return null;
+  const btn = el(`<button class="btn ghost hint-btn" type="button">💡 ヒント</button>`);
+  btn.addEventListener("click", () => {
+    if (session.answered) return;
+    session.hintUsed = true;
+    const box = document.getElementById("hintBox");
+    if (box) {
+      box.hidden = false;
+      box.innerHTML = `<span class="hint-label">💡 ヒント</span><p>${escapeHtml(hintTextOf(ex))}</p>`;
+    }
+    btn.disabled = true;
+  });
+  return btn;
+}
+function dontKnowButton(ex, idx) {
+  const btn = el(`<button class="btn ghost dk-btn" type="button">わからない</button>`);
+  btn.addEventListener("click", () => {
+    if (session.answered) return;
+    finishAnswer(ex, idx, false, true);
+  });
+  return btn;
+}
+
 /* 共通: 解答確定後の処理 */
 function finishAnswer(ex, idx, isCorrect, dontKnow) {
   if (session.answered) return;
   session.answered = true;
-  recordProblem(session.unitId, idx, isCorrect, dontKnow);
+  const item = session.items[session.pos];
+  recordProblem(item.unitId, idx, isCorrect, dontKnow);
   if (isCorrect) session.correct++;
-  session.results.push({ idx, correct: isCorrect, dontKnow: !!dontKnow });
+  session.results.push({ idx, correct: isCorrect, dontKnow: !!dontKnow, item });
   const feedback = document.getElementById("exFeedback");
   feedback.hidden = false;
   feedback.className = "ex-feedback " + (isCorrect ? "ok" : "ng");
@@ -530,16 +733,6 @@ function finishAnswer(ex, idx, isCorrect, dontKnow) {
   nextBtn.focus();
 }
 
-/* わからないボタン */
-function dontKnowButton(ex, idx) {
-  const btn = el(`<button class="btn ghost dk-btn" type="button">わからない</button>`);
-  btn.addEventListener("click", () => {
-    if (session.answered) return;
-    finishAnswer(ex, idx, false, true);
-  });
-  return btn;
-}
-
 /* 選択式 / 品詞選択 */
 function renderChoice(ex, idx, body) {
   const sentence =
@@ -547,11 +740,12 @@ function renderChoice(ex, idx, body) {
       ? `<p class="ex-sentence">${escapeHtml(ex.sentence).replace(
           escapeHtml(ex.target),
           `<u>${escapeHtml(ex.target)}</u>`
-        )}</p><p class="ex-q">下線部「${escapeHtml(ex.target)}」について答えましょう。</p>`
+        )} ${ttsBtn(ex.sentence)}</p><p class="ex-q">下線部「${escapeHtml(ex.target)}」について答えましょう。</p>`
       : "";
   body.innerHTML = `
     ${sentence}
-    <p class="ex-q">${escapeHtml(ex.q)}</p>
+    <p class="ex-q">${escapeHtml(ex.q)} ${ttsBtn(ex.q)}</p>
+    ${hintBoxHtml()}
     <div class="choices">
       ${ex.choices
         .map((c, i) => `<button class="choice-btn" data-choice="${i}" type="button"><span class="choice-no">${i + 1}</span>${escapeHtml(c)}</button>`)
@@ -561,7 +755,10 @@ function renderChoice(ex, idx, body) {
       <span class="ex-actions-spacer"></span>
       <button class="btn primary" id="choiceSubmit" type="button" disabled>解答する</button>
     </div>`;
-  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+  const actions = body.querySelector(".ex-actions");
+  const hb = hintButton(ex);
+  if (hb) actions.prepend(hb);
+  actions.prepend(dontKnowButton(ex, idx));
 
   let selected = -1;
   const submit = document.getElementById("choiceSubmit");
@@ -592,6 +789,7 @@ function renderOrder(ex, idx, body) {
   const tokens = shuffle(ex.tokens);
   body.innerHTML = `
     <p class="ex-q">${escapeHtml(ex.q)}</p>
+    ${hintBoxHtml()}
     <div class="order-answer" id="orderAnswer" aria-label="解答欄"></div>
     <div class="order-tokens" id="orderTokens">
       ${tokens.map((t) => `<button class="token" data-token="${escapeHtml(t)}" type="button">${escapeHtml(t)}</button>`).join("")}
@@ -600,7 +798,10 @@ function renderOrder(ex, idx, body) {
       <button class="btn small" id="orderClear" type="button">クリア</button>
       <button class="btn primary small" id="orderCheck" type="button">解答する</button>
     </div>`;
-  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+  const actions = body.querySelector(".ex-actions");
+  const hb = hintButton(ex);
+  if (hb) actions.prepend(hb);
+  actions.prepend(dontKnowButton(ex, idx));
 
   const answerBox = document.getElementById("orderAnswer");
   const tokenBox = document.getElementById("orderTokens");
@@ -643,7 +844,7 @@ function renderOrder(ex, idx, body) {
     const correct = picked.join(" ") === ex.answer.join(" ");
     answerBox.innerHTML =
       `<div class="order-result">あなたの解答：${escapeHtml(picked.join(" "))}</div>` +
-      `<div class="order-result correct-line">正解：${escapeHtml(ex.answer.join(" "))}</div>`;
+      `<div class="order-result correct-line">正解：${escapeHtml(ex.answer.join(" "))} ${ttsBtn(ex.answer.join(" "))}</div>`;
     finishAnswer(ex, idx, correct);
   });
 }
@@ -652,6 +853,7 @@ function renderOrder(ex, idx, body) {
 function renderInput(ex, idx, body) {
   body.innerHTML = `
     <p class="ex-q">${escapeHtml(ex.q)}</p>
+    ${hintBoxHtml()}
     <div class="input-row">
       <input type="text" id="inputAnswer" class="text-input" placeholder="ここに入力" autocomplete="off" />
     </div>
@@ -659,7 +861,11 @@ function renderInput(ex, idx, body) {
       <span class="ex-actions-spacer"></span>
       <button class="btn primary" id="inputCheck" type="button">解答する</button>
     </div>`;
-  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+  const actions = body.querySelector(".ex-actions");
+  const hb = hintButton(ex);
+  if (hb) actions.prepend(hb);
+  actions.prepend(dontKnowButton(ex, idx));
+
   const input = document.getElementById("inputAnswer");
   function check() {
     if (session.answered) return;
@@ -683,14 +889,15 @@ function renderInput(ex, idx, body) {
   input.focus();
 }
 
-/* 品詞識別（label）: 各まとまりに S/V/O/C/M を割り当て */
+/* 品詞識別（label） */
 const LABEL_OPTS = ["S", "V", "O", "C", "M"];
 const LABEL_DESC = { S: "主語", V: "動詞", O: "目的語", C: "補語", M: "修飾語" };
 function renderLabel(ex, idx, body) {
   const picks = new Array(ex.chunks.length).fill(null);
   body.innerHTML = `
     <p class="ex-q">${escapeHtml(ex.instruction || "各まとまりに文の要素 S/V/O/C/M を割り当てよう。")}</p>
-    <p class="label-sentence">${escapeHtml(ex.sentence)}</p>
+    ${hintBoxHtml()}
+    <p class="label-sentence">${escapeHtml(ex.sentence)} ${ttsBtn(ex.sentence)}</p>
     <div class="label-legend">${LABEL_OPTS.map((l) => `<span><b>${l}</b>＝${LABEL_DESC[l]}</span>`).join("")}</div>
     <div class="label-board">
       ${ex.chunks
@@ -709,7 +916,10 @@ function renderLabel(ex, idx, body) {
       <span class="ex-actions-spacer"></span>
       <button class="btn primary" id="labelCheck" type="button">解答する</button>
     </div>`;
-  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+  const actions = body.querySelector(".ex-actions");
+  const hb = hintButton(ex);
+  if (hb) actions.prepend(hb);
+  actions.prepend(dontKnowButton(ex, idx));
 
   body.querySelectorAll(".label-opt").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -738,19 +948,16 @@ function renderLabel(ex, idx, body) {
         if (b.dataset.label === ex.labels[ci]) b.classList.add("correct");
         if (b.dataset.label === picks[ci] && !ok) b.classList.add("wrong");
       });
-      chunkEl.insertAdjacentHTML(
-        "beforeend",
-        `<span class="chunk-judge">${ok ? "⭕" : "❌ 正解 " + ex.labels[ci]}</span>`
-      );
+      chunkEl.insertAdjacentHTML("beforeend", `<span class="chunk-judge">${ok ? "⭕" : "❌ 正解 " + ex.labels[ci]}</span>`);
     });
     finishAnswer(ex, idx, allCorrect);
   });
 }
 
-/* ステップ型読解（steps）: 英文 → サブステップ → 設問 */
+/* ステップ型読解（steps） */
 function renderSteps(ex, idx, body) {
-  if (!session.sub || session.sub.itemIdx !== idx) {
-    session.sub = { itemIdx: idx, pos: 0, log: [] };
+  if (!session.sub || session.sub.itemIdx !== session.pos) {
+    session.sub = { itemIdx: session.pos, pos: 0, log: [] };
   }
   const sub = session.sub;
   const stepsDone = sub.log
@@ -763,13 +970,12 @@ function renderSteps(ex, idx, body) {
 
   body.innerHTML = `
     <p class="ex-q">${escapeHtml(ex.instruction || "ステップを踏んでから設問に答えよう。")}</p>
-    <div class="passage-box">${escapeHtml(ex.passage)}</div>
+    <div class="passage-box">${escapeHtml(ex.passage)} ${ttsBtn(ex.passage)}</div>
     <div class="steps-log">${stepsDone}</div>
     <div id="stepArea"></div>`;
   const area = document.getElementById("stepArea");
 
   if (sub.pos < ex.steps.length) {
-    // サブステップ出題
     const step = ex.steps[sub.pos];
     area.innerHTML = `
       <div class="substep">
@@ -808,11 +1014,11 @@ function renderSteps(ex, idx, body) {
       renderSteps(ex, idx, body);
     });
   } else {
-    // 本設問（解答確定フロー）
     area.innerHTML = `
       <div class="substep main-q">
         <span class="substep-tag main">設問</span>
         <p class="ex-q">${escapeHtml(ex.main.q)}</p>
+        ${hintBoxHtml()}
         <div class="choices">
           ${ex.main.choices.map((c, i) => `<button class="choice-btn" data-mc="${i}" type="button"><span class="choice-no">${i + 1}</span>${escapeHtml(c)}</button>`).join("")}
         </div>
@@ -821,7 +1027,10 @@ function renderSteps(ex, idx, body) {
           <button class="btn primary" id="stepsSubmit" type="button" disabled>解答する</button>
         </div>
       </div>`;
-    area.querySelector(".ex-actions").prepend(dontKnowButton(ex.main, idx));
+    const actions = area.querySelector(".ex-actions");
+    const hb = hintButton(ex.main);
+    if (hb) actions.prepend(hb);
+    actions.prepend(dontKnowButton(ex.main, idx));
     let selected = -1;
     const submit = document.getElementById("stepsSubmit");
     area.querySelectorAll(".choice-btn").forEach((btn, i) => {
@@ -845,7 +1054,6 @@ function renderSteps(ex, idx, body) {
       finishAnswer(ex.main, idx, correct);
     });
   }
-
 }
 
 function recordProblem(unitId, idx, isCorrect, dontKnow) {
@@ -855,30 +1063,41 @@ function recordProblem(unitId, idx, isCorrect, dontKnow) {
   else p.wrongCount++;
   if (dontKnow) p.dkCount = (p.dkCount || 0) + 1;
   p.last = isCorrect ? "right" : "wrong";
+  scheduleSrs(p, isCorrect);
   progress.problems[key] = p;
   saveProgress();
 }
 
-function renderExerciseResult(unitId) {
-  const { unit, stage } = getUnit(unitId);
+function renderExerciseResult() {
   const total = session.items.length;
   const score = Math.round((session.correct / total) * 100);
   const elapsed = Date.now() - session.startTime;
-  const st = unitState(unitId);
-  st.attempts++;
-  if (score > st.bestScore) st.bestScore = score;
-  if (session.correct === total) st.perfectRuns++;
-  st.lectureDone = st.lectureDone || true;
-  st.lastStudied = Date.now();
-  saveProgress();
-
-  const m = masteryOf(unitId);
-  const medal = medalOf(unitId);
+  const isReview = session.mode === "review";
   const isPerfect = session.correct === total;
+  let m = null,
+    medal = null,
+    unit = null,
+    stage = null;
+
+  if (!isReview) {
+    const found = getUnit(session.unitId);
+    unit = found.unit;
+    stage = found.stage;
+    const st = unitState(session.unitId);
+    st.attempts++;
+    if (score > st.bestScore) st.bestScore = score;
+    if (isPerfect) st.perfectRuns++;
+    st.lectureDone = st.lectureDone || true;
+    st.lastStudied = Date.now();
+    saveProgress();
+    m = masteryOf(session.unitId);
+    medal = medalOf(session.unitId);
+  }
+  updateStreak();
 
   const reviewHtml = session.results
     .map((r) => {
-      const ex = unit.exercises[r.idx];
+      const ex = r.item.ex;
       const label = { choice: "選択", order: "並べ替え", input: "入力", pos: "品詞", label: "品詞識別", steps: "読解" }[ex.type];
       const q = ex.type === "steps" ? ex.main.q : ex.q || ex.sentence;
       const mark = r.correct ? "⭕" : r.dontKnow ? "❓" : "❌";
@@ -886,51 +1105,73 @@ function renderExerciseResult(unitId) {
     })
     .join("");
 
+  const wrongCount = session.results.filter((r) => !r.correct).length;
+  const retryBtn = wrongCount
+    ? `<button class="btn" data-retry-wrong="1" type="button">間違えた${wrongCount}問だけやり直す</button>`
+    : "";
+
+  const headerHtml = isReview
+    ? `<span class="panel-tag">🔁 復習結果</span><h1>${escapeHtml(session.reviewLabel || "復習")}</h1>`
+    : `<span class="panel-tag">✏️ 演習結果</span><h1>${unit.title}</h1>`;
+  const masteryLine = isReview
+    ? `<p class="result-line">復習した問題の<strong>次回復習日</strong>は自動更新されました</p>`
+    : `<p class="result-line">習熟レベル：<span class="mastery-badge" style="background:${m.color}">${m.label}</span></p>
+       <p class="result-line">${medal ? medal.emoji + " " + medal.label + " 獲得！" : "全問正解で銀メダル"}</p>`;
+  const ringColor = isReview ? "#2f6fed" : m.color;
+
+  const actions = isReview
+    ? `${retryBtn}<button class="btn primary" data-nav="review" type="button">復習センターへ</button>
+       <button class="btn" data-nav="home" type="button">ホームへ</button>`
+    : `${retryBtn}<button class="btn primary" data-retry="${session.unitId}" type="button">もう一度演習する</button>
+       <button class="btn" data-go-stage="${stage.id}" type="button">${stage.stage}の単元一覧へ</button>`;
+
+  // 間違い直し用に wrong items を保持
+  const wrongItems = session.results.filter((r) => !r.correct).map((r) => r.item);
+  pendingRetryItems = wrongItems;
+
   app.innerHTML = `
     <section class="wrap narrow">
       <div class="panel result-panel">
-        <span class="panel-tag">✏️ 演習結果</span>
-        <h1>${unit.title}</h1>
-        <div class="result-score" style="--c:${m.color}">
+        ${headerHtml}
+        <div class="result-score" style="--c:${ringColor}">
           <div class="result-ring" style="--p:${score}"><span>${score}<small>%</small></span></div>
           <div class="result-meta">
             <p class="result-line">正解 <strong>${session.correct} / ${total}</strong></p>
             <p class="result-line">所要時間 <strong>${fmtTime(elapsed)}</strong></p>
-            <p class="result-line">習熟レベル：<span class="mastery-badge" style="background:${m.color}">${m.label}</span></p>
-            <p class="result-line">${medal ? medal.emoji + " " + medal.label + " 獲得！" : "全問正解で銀メダル"}</p>
+            ${masteryLine}
           </div>
         </div>
         ${
           isPerfect
-            ? `<p class="result-congrats">🎉 全問正解！もう1周すると上位メダルに挑戦できます。</p>`
-            : `<p class="result-note">間違えた問題・「わからない」とした問題は「習熟状況」で復習できます。</p>`
+            ? `<p class="result-congrats">🎉 全問正解！この調子で続けましょう。</p>`
+            : `<p class="result-note">間違えた問題・「わからない」とした問題は、復習センターと習熟状況で復習できます。</p>`
         }
         <ul class="result-review">${reviewHtml}</ul>
-        <div class="result-actions">
-          <button class="btn primary" data-retry="${unitId}" type="button">もう一度演習する</button>
-          <button class="btn" data-go-stage="${stage.id}" type="button">${stage.stage}の単元一覧へ</button>
-        </div>
+        <div class="result-actions">${actions}</div>
       </div>
     </section>`;
   session = null;
+  renderStreak();
 }
+let pendingRetryItems = [];
 
 /* ---------- 習熟状況 ---------- */
 function renderStatus() {
   const stagesHtml = CURRICULUM.map((stage) => {
     const p = stageProgress(stage);
     const pct = Math.round((p.passed / p.total) * 100);
-    const rows = stage.units
+    const rows = sortedUnits(stage)
       .map((u) => {
-        const m = masteryOf(u.id);
+        const mm = masteryOf(u.id);
         const medal = medalOf(u.id);
         const st = progress.units[u.id];
+        const g = gradeOf(u.id);
         return `
         <button class="status-row" data-go-unit="${u.id}" type="button">
-          <span class="status-title">${u.title}</span>
+          <span class="status-title">${u.title} ${g.label ? `<span class="grade-badge sm">${g.label}</span>` : ""}</span>
           <span class="status-right">
             ${medal ? `<span class="medal">${medal.emoji}</span>` : ""}
-            <span class="mastery-badge sm" style="background:${m.color}">${m.label}</span>
+            <span class="mastery-badge sm" style="background:${mm.color}">${mm.label}</span>
             <span class="status-score">${st && st.attempts ? st.bestScore + "%" : "—"}</span>
           </span>
         </button>`;
@@ -947,7 +1188,6 @@ function renderStatus() {
       </div>`;
   }).join("");
 
-  // 記憶度の集計（覚えた/うろ覚え/苦手/未判定）と苦手・うろ覚えリスト
   const weak = [],
     vague = [];
   let learnedCount = 0,
@@ -982,34 +1222,20 @@ function renderStatus() {
       : `<p class="recall-empty">該当なし。よくできています！</p>`;
 
   let medalCount = { silver: 0, gold: 0, shiny: 0 };
-  const reviewDue = [];
   CURRICULUM.forEach((s) =>
     s.units.forEach((u) => {
       const md = medalOf(u.id);
       if (md && medalCount[md.key] !== undefined) medalCount[md.key]++;
-      if (isDueForReview(u.id)) reviewDue.push({ unitId: u.id, unitTitle: u.title, stage: s.stage });
     })
   );
-  const reviewHtml = reviewDue.length
-    ? reviewDue
-        .map(
-          (e) => `
-        <button class="recall-item" data-go-unit="${e.unitId}" type="button">
-          <span class="recall-dot">🔁</span>
-          <span class="recall-body">
-            <span class="recall-q">${escapeHtml(e.unitTitle)}</span>
-            <span class="recall-unit">${e.stage}／前回の学習から1日以上 — 復習のタイミングです</span>
-          </span>
-        </button>`
-        )
-        .join("")
-    : `<p class="recall-empty">いまは復習推奨の単元はありません。</p>`;
+  const due = dueProblems().length;
 
   app.innerHTML = `
     <section class="wrap">
       <button class="back-link" data-nav="home" type="button">← ホーム</button>
       <h1 class="page-title">習熟状況</h1>
       <div class="status-summary">
+        <div class="summary-card"><span class="summary-num">${progress.streak || 0}</span><span>🔥 連続日数</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.shiny}</span><span>🌟 シャイニー</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.gold}</span><span>🥇 金メダル</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.silver}</span><span>🥈 銀メダル</span></div>
@@ -1019,8 +1245,11 @@ function renderStatus() {
         <div class="summary-card"><span class="summary-num">${undecidedCount}</span><span>⚪ 未判定</span></div>
       </div>
 
-      <h2 class="section-title">🔁 復習推奨の単元</h2>
-      <div class="recall-list">${reviewHtml}</div>
+      ${
+        due > 0
+          ? `<button class="review-banner" data-nav="review" type="button">🔁 <strong>今日の復習が ${due}問</strong> — 復習センターへ</button>`
+          : ""
+      }
 
       <h2 class="section-title">区分・単元ごとの習熟</h2>
       <div class="status-stages">${stagesHtml}</div>
@@ -1037,10 +1266,19 @@ function renderStatus() {
     </section>`;
 }
 
+/* ---------- 音声ボタンの委譲 ---------- */
+document.addEventListener("click", (e) => {
+  const tts = e.target.closest(".tts-btn");
+  if (tts) {
+    speak(tts.dataset.speak || "");
+    e.stopPropagation();
+  }
+});
+
 /* ---------- イベント委譲 ---------- */
 document.addEventListener("click", (e) => {
   const t = e.target.closest(
-    "[data-nav],[data-go-stage],[data-go-unit],[data-step],[data-mode],[data-diag],[data-lecture-done],[data-retry],#homeBtn,#resetBtn,#exNext"
+    "[data-nav],[data-go-stage],[data-go-unit],[data-step],[data-mode],[data-diag],[data-lecture-done],[data-retry],[data-retry-wrong],[data-review-start],#homeBtn,#resetBtn,#exNext"
   );
   if (!t) return;
 
@@ -1048,15 +1286,27 @@ document.addEventListener("click", (e) => {
     if (!session) return;
     session.pos++;
     session.answered = false;
+    session.hintUsed = false;
     session.sub = { pos: 0, log: [] };
-    return renderExercise(session.unitId);
+    return renderExercise();
   }
   if (t.id === "homeBtn") return navigate("home");
   if (t.id === "resetBtn") {
-    if (confirm("学習データ（習熟・メダル・記憶度）をすべて消去します。よろしいですか？")) {
-      progress = { studyMode: progress.studyMode, units: {}, problems: {} };
+    if (confirm("学習データ（習熟・メダル・記憶度・復習予定・連続日数）をすべて消去します。よろしいですか？")) {
+      progress = { studyMode: progress.studyMode, units: {}, problems: {}, streak: 0, lastStudyDate: null };
       saveProgress();
       navigate("status");
+    }
+    return;
+  }
+  if (t.dataset.reviewStart) {
+    const items = t.dataset.reviewStart === "weak" ? weakProblems() : dueProblems();
+    const label = t.dataset.reviewStart === "weak" ? "弱点の復習" : "今日の復習";
+    return startCustomSession(items, label);
+  }
+  if (t.dataset.retryWrong) {
+    if (pendingRetryItems && pendingRetryItems.length) {
+      return startCustomSession(pendingRetryItems, "間違いだけ再挑戦");
     }
     return;
   }
