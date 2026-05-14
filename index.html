@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>英語学習フロー｜小学生→中学生→高校生</title>
+  <meta name="description" content="日本で英語学習を始める小学生から中学生・高校生までの学習フロー。具体学習（じっくり）と簡易学習（短期）の2パターンで進められます。" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="eyebrow">English Learning Roadmap</p>
+      <h1>小学生 → 中学生 → 高校生<br />英語学習フロー</h1>
+      <p class="lead">
+        日本で英語学習を始める小学生から、中学生・高校生までの学習の流れを1本につなげた学習計画です。
+        atama+ の高校英語「4本柱」の考え方を土台に、各段階のステップ・到達目標・つまずきポイントを整理しました。
+      </p>
+
+      <div class="mode-switch" role="group" aria-label="学習パターンの切り替え">
+        <button class="mode-btn active" data-mode="detail" type="button">
+          <span class="mode-icon">🧱</span>
+          <span class="mode-text">
+            <strong>具体学習</strong>
+            <small>じっくり学習</small>
+          </span>
+        </button>
+        <button class="mode-btn" data-mode="quick" type="button">
+          <span class="mode-icon">⚡</span>
+          <span class="mode-text">
+            <strong>簡易学習</strong>
+            <small>短期・範囲拡大</small>
+          </span>
+        </button>
+      </div>
+      <p class="mode-desc" id="modeDesc"></p>
+    </div>
+  </header>
+
+  <nav class="stage-nav">
+    <div class="container">
+      <a href="#elementary">小学生</a>
+      <span class="nav-arrow">→</span>
+      <a href="#junior">中学生</a>
+      <span class="nav-arrow">→</span>
+      <a href="#senior">高校生</a>
+    </div>
+  </nav>
+
+  <main class="container" id="flow"></main>
+
+  <footer class="site-footer">
+    <div class="container">
+      <p>
+        参考: <a href="https://aponline.atama.plus/posts/a000033" target="_blank" rel="noopener">atama+ オンライン｜高校英語の学習について</a>
+      </p>
+      <p class="footer-note">
+        本サイトは学習フローの設計資料です。学年・目安は一般的な目安であり、学習者の状況に応じて調整してください。
+      </p>
+    </div>
+  </footer>
+
+  <script src="data.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
