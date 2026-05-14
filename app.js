@@ -56,9 +56,16 @@ function masteryOf(unitId) {
 function medalOf(unitId) {
   const st = progress.units[unitId];
   if (!st) return null;
-  if (st.perfectRuns >= 2) return { key: "gold", label: "金メダル", emoji: "🥇" };
-  if (st.perfectRuns >= 1) return { key: "silver", label: "銀メダル", emoji: "🥈" };
+  for (const m of MEDALS) {
+    if (st.perfectRuns >= m.runs) return m;
+  }
   return null;
+}
+function isDueForReview(unitId) {
+  const st = progress.units[unitId];
+  if (!st || !st.attempts || !st.lastStudied) return false;
+  const days = (Date.now() - st.lastStudied) / 86400000;
+  return days >= 1;
 }
 function stageProgress(stage) {
   const total = stage.units.length;
@@ -119,6 +126,7 @@ function navigate(name, params) {
 function render() {
   renderGlobalProgress();
   if (route.name === "home") return renderHome();
+  if (route.name === "tips") return renderTips();
   if (route.name === "status") return renderStatus();
   if (route.name === "stage") return renderStage(route.stageId);
   if (route.name === "unit") return renderUnit(route.unitId);
@@ -190,6 +198,32 @@ function renderHome() {
     <section class="wrap">
       <h2 class="section-title">学習区分を選ぶ</h2>
       <div class="stage-grid">${stagesHtml}</div>
+    </section>`;
+}
+
+/* ---------- 学習のコツ ---------- */
+function renderTips() {
+  const scheduleHtml = STUDY_TIPS.schedule.map((s) => `<li>${s}</li>`).join("");
+  const sectionsHtml = STUDY_TIPS.sections
+    .map(
+      (sec) => `
+      <div class="tip-card">
+        <h3><span class="tip-icon">${sec.icon}</span>${sec.area}</h3>
+        <ul>${sec.points.map((p) => `<li>${p}</li>`).join("")}</ul>
+      </div>`
+    )
+    .join("");
+  app.innerHTML = `
+    <section class="wrap">
+      <button class="back-link" data-nav="home" type="button">← ホーム</button>
+      <h1 class="page-title">学習のコツ</h1>
+      <p class="tips-intro">${STUDY_TIPS.intro}</p>
+      <div class="tip-card schedule">
+        <h3><span class="tip-icon">🗓️</span>全体スケジュールと優先順位</h3>
+        <ul>${scheduleHtml}</ul>
+      </div>
+      <h2 class="section-title">分野別の進め方</h2>
+      <div class="tip-grid">${sectionsHtml}</div>
     </section>`;
 }
 
@@ -302,7 +336,7 @@ function renderUnit(unitId) {
           rec === "exercise"
         )}
       </div>
-      <div class="medal-hint">🥈 1周全問正解で銀メダル ／ 🥇 2周全問正解で金メダル</div>
+      <div class="medal-hint">🥈 1周全問正解で銀メダル ／ 🥇 2周で金メダル ／ 🌟 3周でシャイニーメダル</div>
     </section>`;
 }
 
@@ -570,6 +604,7 @@ function renderExerciseResult(unitId) {
   if (score > st.bestScore) st.bestScore = score;
   if (session.correct === total) st.perfectRuns++;
   st.lectureDone = st.lectureDone || true;
+  st.lastStudied = Date.now();
   saveProgress();
 
   const m = masteryOf(unitId);
@@ -676,25 +711,44 @@ function renderStatus() {
           .join("")
       : `<p class="recall-empty">該当なし。よくできています！</p>`;
 
-  let medalCount = { silver: 0, gold: 0 };
+  let medalCount = { silver: 0, gold: 0, shiny: 0 };
+  const reviewDue = [];
   CURRICULUM.forEach((s) =>
     s.units.forEach((u) => {
       const md = medalOf(u.id);
-      if (md && md.key === "silver") medalCount.silver++;
-      if (md && md.key === "gold") medalCount.gold++;
+      if (md && medalCount[md.key] !== undefined) medalCount[md.key]++;
+      if (isDueForReview(u.id)) reviewDue.push({ unitId: u.id, unitTitle: u.title, stage: s.stage });
     })
   );
+  const reviewHtml = reviewDue.length
+    ? reviewDue
+        .map(
+          (e) => `
+        <button class="recall-item" data-go-unit="${e.unitId}" type="button">
+          <span class="recall-dot">🔁</span>
+          <span class="recall-body">
+            <span class="recall-q">${escapeHtml(e.unitTitle)}</span>
+            <span class="recall-unit">${e.stage}／前回の学習から1日以上 — 復習のタイミングです</span>
+          </span>
+        </button>`
+        )
+        .join("")
+    : `<p class="recall-empty">いまは復習推奨の単元はありません。</p>`;
 
   app.innerHTML = `
     <section class="wrap">
       <button class="back-link" data-nav="home" type="button">← ホーム</button>
       <h1 class="page-title">習熟状況</h1>
       <div class="status-summary">
+        <div class="summary-card"><span class="summary-num">${medalCount.shiny}</span><span>🌟 シャイニー</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.gold}</span><span>🥇 金メダル</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.silver}</span><span>🥈 銀メダル</span></div>
         <div class="summary-card"><span class="summary-num">${weak.length}</span><span>🔴 苦手</span></div>
         <div class="summary-card"><span class="summary-num">${vague.length}</span><span>🟡 うろ覚え</span></div>
       </div>
+
+      <h2 class="section-title">🔁 復習推奨の単元</h2>
+      <div class="recall-list">${reviewHtml}</div>
 
       <h2 class="section-title">区分・単元ごとの習熟</h2>
       <div class="status-stages">${stagesHtml}</div>

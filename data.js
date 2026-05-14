@@ -313,6 +313,29 @@ const CURRICULUM = [
           { type: "input", q: "先行詞が『もの』のときに使う関係代名詞を1語書こう（who以外）。", answers: ["which", "that", "Which", "That"], explain: "もの→which / that。" },
         ],
       },
+      {
+        id: "jr-vocab",
+        title: "頻出英単語（中3レベル）",
+        goal: "入試で正答率が下がりやすい中3頻出語を、見て1秒で意味が出るまで定着させる。",
+        diagnosis: "certainly / immediately / opportunity の意味が即答できますか？",
+        lecture: [
+          { h: "単語は英語の土台", body: "英単語の意味とスペルが分かると、長文読解も英作文も解けるようになる。まず語彙から固める。" },
+          { h: "復習間隔を広げる", body: "短時間で何度も思い出すサイクルを回す。復習は『翌日 → 3日後 → 1週間後』と間隔を段階的に広げると長期記憶になる。" },
+          { h: "多角的に・双方向で", body: "見る・聞く・書く・話すの複数方向から触れ、英→日／日→英の双方向で覚える。" },
+        ],
+        exercises: [
+          { type: "choice", q: "「certainly」の意味は？", choices: ["確かに・きっと", "めったに〜ない", "おそらく違う", "ときどき"], answer: 0, explain: "certainly＝確かに、きっと。正答率が下がりやすい頻出副詞。" },
+          { type: "choice", q: "「immediately」の意味は？", choices: ["ゆっくりと", "直ちに・すぐに", "最近", "二度と"], answer: 1, explain: "immediately＝直ちに、すぐに。" },
+          { type: "choice", q: "「opportunity」の意味は？", choices: ["問題", "機会・チャンス", "責任", "結果"], answer: 1, explain: "opportunity＝機会、チャンス。" },
+          { type: "choice", q: "「describe」の意味は？", choices: ["〜を破壊する", "〜の特徴を述べる", "〜を予約する", "〜を避ける"], answer: 1, explain: "describe O＝Oの特徴を述べる、描写する。" },
+          { type: "choice", q: "「although」の意味は？", choices: ["〜なので", "〜だけれども", "〜する間に", "〜するとすぐに"], answer: 1, explain: "although＝〜だけれども（接続詞）。" },
+          { type: "choice", q: "「temperature」の意味は？", choices: ["気温・温度", "天気", "気圧", "季節"], answer: 0, explain: "temperature＝気温、温度。つづりに注意。" },
+          { type: "choice", q: "「unbelievable」の意味は？", choices: ["役に立つ", "信じられない（ほどの）", "予想通りの", "価値のない"], answer: 1, explain: "un(否定)＋believable で『信じられない』。" },
+          { type: "choice", q: "「squirrel」の意味は？", choices: ["ワシ", "リス", "カエル", "ネズミ"], answer: 1, explain: "squirrel＝リス。つづりが難しい頻出語。" },
+          { type: "input", q: "「家具」を表す英単語を書こう（f で始まる）。", answers: ["furniture", "Furniture"], explain: "furniture＝家具。数えられない名詞。" },
+          { type: "input", q: "「ハサミ」を表す英単語を書こう。", answers: ["scissors", "Scissors"], explain: "scissors＝ハサミ。つねに複数形で使う。" },
+        ],
+      },
     ],
   },
 
@@ -493,6 +516,31 @@ const CURRICULUM = [
           { type: "input", q: "「demonstrate」の意味を日本語で書こう（『〜を…する』の動詞）。", answers: ["証明する", "示す", "実証する", "証明する・示す", "デモをする"], explain: "demonstrate＝（実例で）示す・証明する。" },
         ],
       },
+      {
+        id: "sr-vocab-freq",
+        title: "頻出英単語（高2・高3レベル）",
+        goal: "正答率が4〜5割まで下がる入試頻出語を、長文・英作文で使えるレベルにする。",
+        diagnosis: "obtain / whereas / distribute の意味が即答できますか？",
+        lecture: [
+          { h: "正答率が低い＝差がつく", body: "ここで扱う語は多くの受験生が間違える。確実に覚えればライバルに差をつけられる。" },
+          { h: "1秒で意味を出す", body: "長文・英作文で使うには『見た瞬間に意味が出る』速さが必要。アウトプット型で反復する。" },
+          { h: "語源・派生で広げる", body: "接頭辞・接尾辞や語源に着目すると、初見の語も意味を推測できるようになる。" },
+        ],
+        exercises: [
+          { type: "choice", q: "「obtain」の意味は？", choices: ["〜を失う", "〜を得る・手に入れる", "〜を疑う", "〜を避ける"], answer: 1, explain: "obtain O＝Oを得る、手に入れる。正答率42%の難語。" },
+          { type: "choice", q: "「purchase」の意味は？", choices: ["〜を購入する", "〜を返品する", "〜を比較する", "〜を借りる"], answer: 0, explain: "purchase O＝Oを購入する、買う。" },
+          { type: "choice", q: "「whereas」の意味は？", choices: ["〜なので", "〜する一方で・〜のに対し", "〜する前に", "〜さえあれば"], answer: 1, explain: "whereas＝〜する一方で（対比を表す接続詞）。" },
+          { type: "choice", q: "「declare」の意味は？", choices: ["〜を宣言する", "〜を拒否する", "〜を延期する", "〜を修理する"], answer: 0, explain: "declare O＝Oを宣言する。" },
+          { type: "choice", q: "「definitely」の意味は？", choices: ["たぶん", "確実に・明確に", "まれに", "一時的に"], answer: 1, explain: "definitely＝確実に、明確に。" },
+          { type: "choice", q: "「cope with A」の意味は？", choices: ["Aをうまく処理する", "Aを無視する", "Aを所有する", "Aを輸入する"], answer: 0, explain: "cope with A＝Aをうまく処理する、対処する。" },
+          { type: "choice", q: "「contrary to A」の意味は？", choices: ["Aに加えて", "Aと反対の", "Aのおかげで", "Aの代わりに"], answer: 1, explain: "contrary to A＝Aと反対の。" },
+          { type: "choice", q: "「distribute」の意味は？", choices: ["〜を集める", "〜を配付する・分配する", "〜を破棄する", "〜を発明する"], answer: 1, explain: "distribute O＝Oを配付する、分配する、流通させる。" },
+          { type: "choice", q: "「secure」の意味は？", choices: ["〜を確保する・守る", "〜を危険にさらす", "〜を疑う", "〜を売る"], answer: 0, explain: "secure O＝Oを確保する、守る。形容詞では『安全な』。" },
+          { type: "choice", q: "「interact with A」の意味は？", choices: ["Aを避ける", "Aと相互に作用する・交流する", "Aを支配する", "Aを観察する"], answer: 1, explain: "interact with A＝Aと相互に作用する、交流する。" },
+          { type: "choice", q: "「determine」の意味として正しいものは？", choices: ["〜を決定する", "〜を忘れる", "〜を借りる", "〜を壊す"], answer: 0, explain: "determine O＝Oを決定する。be determined to V＝Vを決心している。" },
+          { type: "input", q: "「succeed」には2つの意味がある。『成功する』ともう一つ、目的語をとる意味を日本語で書こう。", answers: ["〜の後を継ぐ", "後を継ぐ", "継承する", "跡を継ぐ", "継ぐ", "後を継ぐこと"], explain: "succeed O＝Oの後を継ぐ。succeed in 〜＝〜に成功する。" },
+        ],
+      },
     ],
   },
 ];
@@ -519,3 +567,60 @@ const MASTERY_LEVELS = [
   { key: "advanced", label: "上級", min: 75, color: "#8b5cf6" },
   { key: "passed", label: "合格", min: 100, color: "#16a34a" },
 ];
+
+/* メダル定義（演習を全問正解した周回数で判定） */
+const MEDALS = [
+  { key: "shiny", label: "シャイニーメダル", emoji: "🌟", runs: 3 },
+  { key: "gold", label: "金メダル", emoji: "🥇", runs: 2 },
+  { key: "silver", label: "銀メダル", emoji: "🥈", runs: 1 },
+];
+
+/* 学習のコツ（英語学習の進め方ガイド） */
+const STUDY_TIPS = {
+  intro:
+    "学習データや合格者の声から見えてきた、英語の伸ばし方のコツ。各単元の「診断 → 講義 → 演習」とあわせて活用しよう。",
+  schedule: [
+    "高3の夏までに、英単語・英文法を一通り学習し終えるのが目安。秋からは志望校対策に移る。",
+    "毎日の優先順位は ①英単語 → ②英文法 → ③（必要なら）リスニング。少量でも毎日続けることを最優先に。",
+    "語彙量の目安：中学で2,000〜2,500語、高校で4,000〜5,000語（難関大志望はさらに熟語1,000〜1,500語）。",
+  ],
+  sections: [
+    {
+      area: "英単語",
+      icon: "📖",
+      points: [
+        "目標は「見て1秒で意味が出る」状態。眺めるだけでなく、意味を思い出す・書き出すアウトプット型で覚える。",
+        "短時間で何度も思い出すサイクルを回す。復習間隔は『翌日 → 3日後 → 1週間後』と段階的に広げると長期記憶になる。",
+        "見る・聞く・書く・話すの多角的接触。英→日／日→英の双方向で覚える。",
+        "1日10〜15分でも毎日。時間と場所を決めて習慣化する。語源に着目すると初見語も推測できる。",
+      ],
+    },
+    {
+      area: "英文法",
+      icon: "🧩",
+      points: [
+        "「インプット（覚える）→ アウトプット（解く）→ 振り返り（間違い直し）」を単元ごとに回す。",
+        "順序は『英文法（語順ルール）』→『英文解釈（複雑な文の意味）』。完璧より「長文が読める程度」を目標に。",
+        "模試やテストで読めなかった英文から復習する。間違いが減らなければ中学範囲まで戻る。",
+      ],
+    },
+    {
+      area: "長文読解",
+      icon: "📰",
+      points: [
+        "英単語・英文法が7割以上定着してから本格化。「解答20分＋採点・振り返り20分＝40分」を1セットに。",
+        "振り返りは「単語が分かるか → 文法が分かるか」の順に確認。まずは短文の構文解析から。",
+        "文章タイプ（論説文／物語文）で読み方を変える。志望校の過去問で出題傾向をつかむ。",
+        "ディスコースマーカー（however, because, as a result など）で文と文の論理関係をとらえる。",
+      ],
+    },
+    {
+      area: "リスニング",
+      icon: "🎧",
+      points: [
+        "共通テストや一部の難関大で必要。シャドーイング（音声を追って発音）とディクテーション（書き起こし）が有効。",
+        "毎日聴く習慣をつくる。聴き流さず、能動的に取り組むことが大切。",
+      ],
+    },
+  ],
+};
