@@ -1,9 +1,16 @@
 /* =========================================================
    英語習熟トレーナー  アプリ本体（SPA）
-   区分 → 学習単元 → 診断/講義/演習。習熟と記憶度を localStorage で管理。
+   atama+「高校英語ガイド」の実画面仕様を反映:
+   - 合格までのステップ（診断 → 講義 → 演習）
+   - 演習は「選択 → 解答する」の2段階＋「わからない」ボタン
+   - 解説は「模範解説 → ポイント（手順）→ さらに詳しい解説（折りたたみ）」
+   - 英文読解は steps 型（S/V/文型…を踏ませてから設問）
+   - 品詞識別は label 型（各まとまりに S/V/O/C/M を割り当て）
+   - 単元は難易度3段階（基礎・標準・発展）、経過タイマー表示
+   - 記憶度は 覚えた / うろ覚え / 苦手 / 未判定
    ========================================================= */
 
-const STORE_KEY = "eng-mastery-trainer-v1";
+const STORE_KEY = "eng-mastery-trainer-v2";
 
 /* ---------- 進捗データ ---------- */
 function loadProgress() {
@@ -64,27 +71,26 @@ function medalOf(unitId) {
 function isDueForReview(unitId) {
   const st = progress.units[unitId];
   if (!st || !st.attempts || !st.lastStudied) return false;
-  const days = (Date.now() - st.lastStudied) / 86400000;
-  return days >= 1;
+  return (Date.now() - st.lastStudied) / 86400000 >= 1;
 }
-function stageProgress(stage) {
-  const total = stage.units.length;
-  let passed = 0;
-  let scoreSum = 0;
-  stage.units.forEach((u) => {
-    const m = masteryOf(u.id);
-    if (m.key === "passed") passed++;
-    const st = progress.units[u.id];
-    scoreSum += st ? st.bestScore : 0;
-  });
-  return { total, passed, avg: Math.round(scoreSum / total) };
+/* 難易度: 明示があればそれ、なければ問題の並び位置で 基礎/標準/発展 */
+const DIFF_META = {
+  基礎: { color: "#16a34a" },
+  標準: { color: "#2f6fed" },
+  発展: { color: "#c9582b" },
+};
+function difficultyOf(unit, idx) {
+  const ex = unit.exercises[idx];
+  if (ex && ex.difficulty) return ex.difficulty;
+  const r = idx / Math.max(1, unit.exercises.length);
+  return r < 0.34 ? "基礎" : r < 0.67 ? "標準" : "発展";
 }
 function problemKey(unitId, idx) {
   return unitId + "::" + idx;
 }
 function problemStatus(unitId, idx) {
   const p = progress.problems[problemKey(unitId, idx)];
-  if (!p) return null;
+  if (!p) return null; // 未判定
   if (p.last === "wrong") return "weak";
   if (p.wrongCount > 0) return "vague";
   return "learned";
@@ -94,6 +100,17 @@ const STATUS_META = {
   vague: { label: "うろ覚え", color: "#d97706", emoji: "🟡" },
   learned: { label: "覚えた", color: "#16a34a", emoji: "🟢" },
 };
+function stageProgress(stage) {
+  const total = stage.units.length;
+  let passed = 0,
+    scoreSum = 0;
+  stage.units.forEach((u) => {
+    if (masteryOf(u.id).key === "passed") passed++;
+    const st = progress.units[u.id];
+    scoreSum += st ? st.bestScore : 0;
+  });
+  return { total, passed, avg: Math.round(scoreSum / total) };
+}
 
 /* ---------- ユーティリティ ---------- */
 function el(html) {
@@ -112,18 +129,40 @@ function shuffle(arr) {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 }
+function fmtTime(ms) {
+  const s = Math.floor(ms / 1000);
+  return String(Math.floor(s / 60)).padStart(2, "0") + "分" + String(s % 60).padStart(2, "0") + "秒";
+}
+
+/* 構造化解説（模範解説 → ポイント → さらに詳しい解説） */
+function explanationHtml(ex) {
+  let html = `<div class="exp-block"><span class="exp-label">模範解説</span><p>${escapeHtml(ex.explain || "")}</p></div>`;
+  if (ex.points && ex.points.length) {
+    html += `<div class="exp-block"><span class="exp-label">ポイント（解き方の手順）</span><ol class="exp-points">${ex.points
+      .map((p) => `<li>${escapeHtml(p)}</li>`)
+      .join("")}</ol></div>`;
+  }
+  if (ex.more) {
+    html += `<details class="exp-more"><summary>さらに詳しい解説を開く</summary><p>${escapeHtml(ex.more)}</p></details>`;
+  }
+  return html;
+}
 
 /* ---------- ルーティング ---------- */
 const app = document.getElementById("app");
 let route = { name: "home" };
+let timerInterval = null;
 
 function navigate(name, params) {
   route = Object.assign({ name }, params || {});
   window.scrollTo(0, 0);
   render();
 }
-
 function render() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+  }
   renderGlobalProgress();
   if (route.name === "home") return renderHome();
   if (route.name === "tips") return renderTips();
@@ -166,10 +205,7 @@ function renderHome() {
         </div>
         <p class="stage-card-desc">${stage.desc}</p>
         <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${stage.color}"></div></div>
-        <div class="stage-card-foot">
-          <span>合格 ${p.passed}/${p.total}</span>
-          <span>平均習熟 ${p.avg}%</span>
-        </div>
+        <div class="stage-card-foot"><span>合格 ${p.passed}/${p.total}</span><span>平均習熟 ${p.avg}%</span></div>
       </button>`;
   }).join("");
 
@@ -186,8 +222,10 @@ function renderHome() {
     <section class="hero">
       <div class="wrap">
         <h1>英語を「区分 × 学習単元」で<br />習熟していく学習アプリ</h1>
-        <p class="hero-lead">小学生・中学生・高校生の3区分。各学習単元を「診断 → 講義 → 演習」で進め、
-        正答率に応じて習熟レベル（初級〜合格）とメダルが上がっていきます。間違えた問題は「苦手・うろ覚え」として記録され、復習できます。</p>
+        <p class="hero-lead">小学生・中学生・高校生の3区分。各学習単元を「診断 → 講義 → 演習」で進めます。
+        演習は<strong>選択して「解答する」</strong>の2段階。当てずっぽうを防ぐ<strong>「わからない」</strong>ボタン、
+        <strong>模範解説＋ポイント＋詳しい解説</strong>、英文読解の<strong>ステップ型</strong>問題、品詞識別など、
+        実際の学習画面に近い形で習熟を進められます。</p>
         <div class="mode-row">
           <span class="mode-row-label">学習の進め方</span>
           <div class="mode-pills">${modeBtns}</div>
@@ -241,7 +279,9 @@ function renderStage(stageId) {
       <button class="unit-row" data-go-unit="${u.id}" type="button">
         <span class="unit-no">${i + 1}</span>
         <span class="unit-main">
-          <span class="unit-title">${u.title} ${medal ? `<span class="medal">${medal.emoji}</span>` : ""}</span>
+          <span class="unit-title">${u.title} <span class="tier-mark" title="基礎・標準・発展の3段階で構成">+++</span> ${
+        medal ? `<span class="medal">${medal.emoji}</span>` : ""
+      }</span>
           <span class="unit-goal">${u.goal}</span>
         </span>
         <span class="unit-meta">
@@ -265,7 +305,7 @@ function renderStage(stageId) {
     </section>`;
 }
 
-/* ---------- 単元トップ（診断/講義/演習） ---------- */
+/* ---------- 単元トップ（合格までのステップ） ---------- */
 function renderUnit(unitId) {
   const found = getUnit(unitId);
   if (!found) return navigate("home");
@@ -275,19 +315,11 @@ function renderUnit(unitId) {
   const m = masteryOf(unitId);
   const medal = medalOf(unitId);
 
-  const stepCard = (icon, name, desc, done, action, recommended) => `
-    <button class="step-card ${done ? "done" : ""} ${recommended ? "recommended" : ""}" data-step="${action}" type="button">
-      <span class="step-icon">${icon}</span>
-      <span class="step-body">
-        <span class="step-name">${name} ${done ? '<span class="step-done">完了</span>' : ""}${
-    recommended ? '<span class="step-rec">おすすめ</span>' : ""
-  }</span>
-        <span class="step-desc">${desc}</span>
-      </span>
-      <span class="step-arrow">›</span>
-    </button>`;
+  // 難易度構成の集計
+  const diffCount = { 基礎: 0, 標準: 0, 発展: 0 };
+  unit.exercises.forEach((_, i) => diffCount[difficultyOf(unit, i)]++);
 
-  // おすすめステップの判定
+  // おすすめステップ
   let rec = "exercise";
   if (mode === "detail") {
     if (!st.diagnosed) rec = "diagnosis";
@@ -297,14 +329,36 @@ function renderUnit(unitId) {
     rec = st.lectureDone ? "exercise" : "lecture";
   }
 
+  const stepCard = (icon, name, desc, done, action, recommended, locked) => `
+    <button class="step-card ${done ? "done" : ""} ${recommended ? "recommended" : ""} ${locked ? "locked" : ""}"
+      data-step="${action}" type="button" ${locked ? "disabled" : ""}>
+      <span class="step-icon">${icon}</span>
+      <span class="step-body">
+        <span class="step-name">${name}
+          ${done ? '<span class="step-done">完了</span>' : ""}
+          ${recommended ? '<span class="step-rec">おすすめ</span>' : ""}
+          ${locked ? '<span class="step-lock">診断後に解放</span>' : ""}
+        </span>
+        <span class="step-desc">${desc}</span>
+      </span>
+      <span class="step-arrow">›</span>
+    </button>`;
+
   const exTotal = unit.exercises.length;
+  const lectureLocked = mode === "detail" && !st.diagnosed;
+
   app.innerHTML = `
     <section class="wrap">
       <button class="back-link" data-go-stage="${stage.id}" type="button">← ${stage.stage}の単元一覧</button>
       <div class="unit-header" style="--c:${stage.color}">
         <span class="stage-chip" style="background:${stage.color}">${stage.stage}</span>
-        <h1>${unit.title} ${medal ? `<span class="medal lg">${medal.emoji}</span>` : ""}</h1>
+        <h1>${unit.title} <span class="tier-mark big">+++</span> ${medal ? `<span class="medal lg">${medal.emoji}</span>` : ""}</h1>
         <p class="unit-header-goal"><strong>この単元のゴール：</strong>${unit.goal}</p>
+        <div class="tier-row">
+          <span class="tier-chip" style="--c:${DIFF_META.基礎.color}">基礎 ${diffCount.基礎}問</span>
+          <span class="tier-chip" style="--c:${DIFF_META.標準.color}">標準 ${diffCount.標準}問</span>
+          <span class="tier-chip" style="--c:${DIFF_META.発展.color}">発展 ${diffCount.発展}問</span>
+        </div>
         <div class="unit-header-stat">
           <span class="mastery-badge" style="background:${m.color}">習熟：${m.label}</span>
           <span>最高スコア ${st.attempts ? st.bestScore + "%" : "—"}</span>
@@ -312,28 +366,30 @@ function renderUnit(unitId) {
           <span>${medal ? medal.label : "メダル未獲得"}</span>
         </div>
       </div>
-      <h2 class="section-title">学習ステップ</h2>
+      <h2 class="section-title">合格までのステップ</h2>
       <div class="step-list">
         ${
           mode === "detail"
-            ? stepCard("🩺", "診断", "今の理解度をかんたんにチェック。", st.diagnosed, "diagnosis", rec === "diagnosis")
+            ? stepCard("🩺", "1. 理解度をチェック（診断）", "今の理解度をかんたんに自己診断する。", st.diagnosed, "diagnosis", rec === "diagnosis", false)
             : ""
         }
         ${stepCard(
           "📘",
-          mode === "detail" ? "講義" : "講義（要点）",
-          mode === "detail" ? "要点を講義で学ぶ。" : "要点だけ高速チェック。",
+          mode === "detail" ? "2. 講義で学ぶ" : "1. 講義（要点）",
+          mode === "detail" ? "要点を講義で学び、解き方の土台をつくる。" : "要点だけ高速チェック。",
           st.lectureDone,
           "lecture",
-          rec === "lecture"
+          rec === "lecture",
+          lectureLocked
         )}
         ${stepCard(
           "✏️",
-          "演習",
-          `全${exTotal}問。選択・並べ替え・入力・品詞識別で定着を測る。`,
+          mode === "detail" ? "3. 演習で定着させる" : "2. 演習で定着させる",
+          `全${exTotal}問。選択・並べ替え・入力・品詞識別・ステップ型読解で習熟を測る。`,
           st.bestScore > 0,
           "exercise",
-          rec === "exercise"
+          rec === "exercise",
+          false
         )}
       </div>
       <div class="medal-hint">🥈 1周全問正解で銀メダル ／ 🥇 2周で金メダル ／ 🌟 3周でシャイニーメダル</div>
@@ -342,7 +398,7 @@ function renderUnit(unitId) {
 
 /* ---------- 診断 ---------- */
 function renderDiagnosis(unitId) {
-  const { unit, stage } = getUnit(unitId);
+  const { unit } = getUnit(unitId);
   app.innerHTML = `
     <section class="wrap narrow">
       <button class="back-link" data-go-unit="${unitId}" type="button">← ${unit.title}</button>
@@ -350,10 +406,10 @@ function renderDiagnosis(unitId) {
         <span class="panel-tag">🩺 診断</span>
         <h1>${unit.title}</h1>
         <p class="diag-q">${unit.diagnosis}</p>
-        <p class="diag-help">いまの理解度を自己判定してください。どちらを選んでも学習は進められます。</p>
+        <p class="diag-help">いまの理解度を自己判定してください。判定の結果に応じて、講義から始めるか演習に進むかを選べます。</p>
         <div class="diag-btns">
-          <button class="btn primary" data-diag="ok" type="button">だいたい分かる → 演習へ</button>
-          <button class="btn" data-diag="ng" type="button">あやしい → 講義から</button>
+          <button class="btn primary" data-diag="ok" type="button">だいたい分かる → 演習へ進む</button>
+          <button class="btn" data-diag="ng" type="button">あやしい → 講義から学ぶ</button>
         </div>
       </div>
     </section>`;
@@ -361,16 +417,10 @@ function renderDiagnosis(unitId) {
 
 /* ---------- 講義 ---------- */
 function renderLecture(unitId) {
-  const { unit, stage } = getUnit(unitId);
+  const { unit } = getUnit(unitId);
   const mode = progress.studyMode || "detail";
   const pointsHtml = unit.lecture
-    .map(
-      (pt) => `
-      <div class="lec-point">
-        <h3>${pt.h}</h3>
-        ${mode === "detail" ? `<p>${pt.body}</p>` : ""}
-      </div>`
-    )
+    .map((pt) => `<div class="lec-point"><h3>${pt.h}</h3>${mode === "detail" ? `<p>${pt.body}</p>` : ""}</div>`)
     .join("");
   app.innerHTML = `
     <section class="wrap narrow">
@@ -397,199 +447,413 @@ function startExercise(unitId) {
     correct: 0,
     answered: false,
     results: [],
+    startTime: Date.now(),
+    sub: { pos: 0, picks: [] }, // steps/label 用のサブ状態
   };
   renderExercise(unitId);
 }
 
+function startTimer() {
+  const span = document.getElementById("exTimer");
+  if (!span || !session) return;
+  const tick = () => {
+    const s = document.getElementById("exTimer");
+    if (s && session) s.textContent = fmtTime(Date.now() - session.startTime);
+  };
+  tick();
+  timerInterval = setInterval(tick, 1000);
+}
+
 function renderExercise(unitId) {
-  if (!session || session.unitId !== unitId) {
-    return startExercise(unitId);
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
   }
+  if (!session || session.unitId !== unitId) return startExercise(unitId);
   const { unit, stage } = getUnit(unitId);
   const total = session.items.length;
-
   if (session.pos >= total) return renderExerciseResult(unitId);
 
   const { ex, idx } = session.items[session.pos];
+  const diff = difficultyOf(unit, idx);
   const pstatus = problemStatus(unitId, idx);
   const statusTag = pstatus
     ? `<span class="pstatus" style="color:${STATUS_META[pstatus].color}">${STATUS_META[pstatus].emoji} ${STATUS_META[pstatus].label}</span>`
-    : "";
-
-  let bodyHtml = "";
-  if (ex.type === "choice" || ex.type === "pos") {
-    const sentence =
-      ex.type === "pos"
-        ? `<p class="ex-sentence">${escapeHtml(ex.sentence).replace(
-            escapeHtml(ex.target),
-            `<u>${escapeHtml(ex.target)}</u>`
-          )}</p><p class="ex-q">下線部「${escapeHtml(ex.target)}」について答えましょう。</p>`
-        : "";
-    bodyHtml = `
-      ${sentence}
-      <p class="ex-q">${escapeHtml(ex.q)}</p>
-      <div class="choices">
-        ${ex.choices
-          .map((c, i) => `<button class="choice-btn" data-choice="${i}" type="button">${escapeHtml(c)}</button>`)
-          .join("")}
-      </div>`;
-  } else if (ex.type === "order") {
-    const tokens = shuffle(ex.tokens);
-    bodyHtml = `
-      <p class="ex-q">${escapeHtml(ex.q)}</p>
-      <div class="order-answer" id="orderAnswer" aria-label="解答欄"></div>
-      <div class="order-tokens" id="orderTokens">
-        ${tokens.map((t) => `<button class="token" data-token="${escapeHtml(t)}" type="button">${escapeHtml(t)}</button>`).join("")}
-      </div>
-      <div class="order-actions">
-        <button class="btn small" id="orderClear" type="button">クリア</button>
-        <button class="btn primary small" id="orderCheck" type="button">解答する</button>
-      </div>`;
-  } else if (ex.type === "input") {
-    bodyHtml = `
-      <p class="ex-q">${escapeHtml(ex.q)}</p>
-      <div class="input-row">
-        <input type="text" id="inputAnswer" class="text-input" placeholder="ここに英語で入力" autocomplete="off" />
-        <button class="btn primary" id="inputCheck" type="button">解答する</button>
-      </div>`;
-  }
-
-  const typeLabel = { choice: "選択式", order: "並べ替え式", input: "入力式", pos: "品詞識別" }[ex.type];
+    : `<span class="pstatus" style="color:#8b97a6">⚪ 未判定</span>`;
+  const typeLabel = { choice: "選択式", order: "並べ替え式", input: "入力式", pos: "品詞選択", label: "品詞識別", steps: "ステップ型読解" }[ex.type];
 
   app.innerHTML = `
     <section class="wrap narrow">
       <button class="back-link" data-go-unit="${unitId}" type="button">← 演習をやめる</button>
       <div class="ex-progress">
         <div class="ex-progress-bar"><div style="width:${(session.pos / total) * 100}%"></div></div>
-        <span>${session.pos + 1} / ${total}　正解 ${session.correct}</span>
+        <span class="ex-counter">問題 ${session.pos + 1} / ${total}</span>
+        <span class="ex-timer">⏱ <span id="exTimer">00分00秒</span></span>
       </div>
       <div class="panel ex-panel">
         <div class="ex-head">
           <span class="ex-type">${typeLabel}</span>
+          <span class="diff-badge" style="background:${DIFF_META[diff].color}">${diff}</span>
+          <span class="ex-correct">正解 ${session.correct}</span>
           ${statusTag}
         </div>
-        ${bodyHtml}
+        <div id="exBody"></div>
         <div class="ex-feedback" id="exFeedback" hidden></div>
         <button class="btn primary wide" id="exNext" type="button" hidden>次へ →</button>
       </div>
     </section>`;
 
-  wireExercise(ex, idx);
+  startTimer();
+  const body = document.getElementById("exBody");
+  if (ex.type === "choice" || ex.type === "pos") renderChoice(ex, idx, body);
+  else if (ex.type === "order") renderOrder(ex, idx, body);
+  else if (ex.type === "input") renderInput(ex, idx, body);
+  else if (ex.type === "label") renderLabel(ex, idx, body);
+  else if (ex.type === "steps") renderSteps(ex, idx, body);
 }
 
-function wireExercise(ex, idx) {
+/* 共通: 解答確定後の処理 */
+function finishAnswer(ex, idx, isCorrect, dontKnow) {
+  if (session.answered) return;
+  session.answered = true;
+  recordProblem(session.unitId, idx, isCorrect, dontKnow);
+  if (isCorrect) session.correct++;
+  session.results.push({ idx, correct: isCorrect, dontKnow: !!dontKnow });
   const feedback = document.getElementById("exFeedback");
+  feedback.hidden = false;
+  feedback.className = "ex-feedback " + (isCorrect ? "ok" : "ng");
+  const head = isCorrect ? "⭕ 正解！" : dontKnow ? "❓ わからない（苦手として記録しました）" : "❌ 不正解";
+  feedback.innerHTML = `<strong>${head}</strong>${explanationHtml(ex)}`;
   const nextBtn = document.getElementById("exNext");
+  nextBtn.hidden = false;
+  nextBtn.textContent = session.pos + 1 >= session.items.length ? "結果を見る →" : "次へ →";
+  nextBtn.focus();
+}
 
-  function finishAnswer(isCorrect) {
+/* わからないボタン */
+function dontKnowButton(ex, idx) {
+  const btn = el(`<button class="btn ghost dk-btn" type="button">わからない</button>`);
+  btn.addEventListener("click", () => {
     if (session.answered) return;
-    session.answered = true;
-    recordProblem(session.unitId, idx, isCorrect);
-    if (isCorrect) session.correct++;
-    session.results.push({ idx, correct: isCorrect });
-    feedback.hidden = false;
-    feedback.className = "ex-feedback " + (isCorrect ? "ok" : "ng");
-    feedback.innerHTML = `
-      <strong>${isCorrect ? "⭕ 正解！" : "❌ 不正解"}</strong>
-      <p>${escapeHtml(ex.explain)}</p>`;
-    nextBtn.hidden = false;
-    nextBtn.focus();
-  }
+    finishAnswer(ex, idx, false, true);
+  });
+  return btn;
+}
 
-  if (ex.type === "choice" || ex.type === "pos") {
-    document.querySelectorAll(".choice-btn").forEach((btn, i) => {
-      btn.addEventListener("click", () => {
-        if (session.answered) return;
-        const correct = i === ex.answer;
-        document.querySelectorAll(".choice-btn").forEach((b, bi) => {
-          b.disabled = true;
-          if (bi === ex.answer) b.classList.add("correct");
-          if (bi === i && !correct) b.classList.add("wrong");
-        });
-        finishAnswer(correct);
-      });
-    });
-  } else if (ex.type === "order") {
-    const answerBox = document.getElementById("orderAnswer");
-    const tokenBox = document.getElementById("orderTokens");
-    const picked = [];
-    function refresh() {
-      answerBox.innerHTML = picked
-        .map((t, i) => `<button class="token in-answer" data-remove="${i}" type="button">${escapeHtml(t)}</button>`)
-        .join("");
-      answerBox.querySelectorAll("[data-remove]").forEach((b) => {
-        b.addEventListener("click", () => {
-          if (session.answered) return;
-          const ri = Number(b.dataset.remove);
-          const [tok] = picked.splice(ri, 1);
-          // トークンを戻す
-          const back = tokenBox.querySelector(`.token[data-token="${CSS.escape(tok)}"][hidden]`);
-          if (back) back.hidden = false;
-          refresh();
-        });
-      });
-    }
-    tokenBox.querySelectorAll(".token").forEach((b) => {
-      b.addEventListener("click", () => {
-        if (session.answered) return;
-        picked.push(b.dataset.token);
-        b.hidden = true;
-        refresh();
-      });
-    });
-    document.getElementById("orderClear").addEventListener("click", () => {
-      if (session.answered) return;
-      picked.length = 0;
-      tokenBox.querySelectorAll(".token").forEach((b) => (b.hidden = false));
-      refresh();
-    });
-    document.getElementById("orderCheck").addEventListener("click", () => {
-      if (session.answered) return;
-      if (picked.length !== ex.answer.length) {
-        answerBox.classList.add("shake");
-        setTimeout(() => answerBox.classList.remove("shake"), 400);
-        return;
-      }
-      const correct = picked.join(" ") === ex.answer.join(" ");
-      answerBox.innerHTML =
-        `<div class="order-result">あなたの解答：${escapeHtml(picked.join(" "))}</div>` +
-        `<div class="order-result correct-line">正解：${escapeHtml(ex.answer.join(" "))}</div>`;
-      finishAnswer(correct);
-    });
-  } else if (ex.type === "input") {
-    const input = document.getElementById("inputAnswer");
-    function check() {
-      if (session.answered) return;
-      const val = input.value.trim();
-      const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").replace(/[.．。]/g, "").trim();
-      const correct = ex.answers.some((a) => norm(a) === norm(val));
-      input.disabled = true;
-      input.classList.add(correct ? "correct" : "wrong");
-      if (!correct) {
-        const fb = el(`<p class="input-correct">正解例：${escapeHtml(ex.answers[0])}</p>`);
-        input.parentElement.after(fb);
-      }
-      finishAnswer(correct);
-    }
-    document.getElementById("inputCheck").addEventListener("click", check);
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") check();
-    });
-    input.focus();
-  }
+/* 選択式 / 品詞選択 */
+function renderChoice(ex, idx, body) {
+  const sentence =
+    ex.type === "pos"
+      ? `<p class="ex-sentence">${escapeHtml(ex.sentence).replace(
+          escapeHtml(ex.target),
+          `<u>${escapeHtml(ex.target)}</u>`
+        )}</p><p class="ex-q">下線部「${escapeHtml(ex.target)}」について答えましょう。</p>`
+      : "";
+  body.innerHTML = `
+    ${sentence}
+    <p class="ex-q">${escapeHtml(ex.q)}</p>
+    <div class="choices">
+      ${ex.choices
+        .map((c, i) => `<button class="choice-btn" data-choice="${i}" type="button"><span class="choice-no">${i + 1}</span>${escapeHtml(c)}</button>`)
+        .join("")}
+    </div>
+    <div class="ex-actions">
+      <span class="ex-actions-spacer"></span>
+      <button class="btn primary" id="choiceSubmit" type="button" disabled>解答する</button>
+    </div>`;
+  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
 
-  nextBtn.addEventListener("click", () => {
-    session.pos++;
-    session.answered = false;
-    renderExercise(session.unitId);
+  let selected = -1;
+  const submit = document.getElementById("choiceSubmit");
+  body.querySelectorAll(".choice-btn").forEach((btn, i) => {
+    btn.addEventListener("click", () => {
+      if (session.answered) return;
+      selected = i;
+      body.querySelectorAll(".choice-btn").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      submit.disabled = false;
+    });
+  });
+  submit.addEventListener("click", () => {
+    if (session.answered || selected < 0) return;
+    const correct = selected === ex.answer;
+    body.querySelectorAll(".choice-btn").forEach((b, bi) => {
+      b.disabled = true;
+      if (bi === ex.answer) b.classList.add("correct");
+      if (bi === selected && !correct) b.classList.add("wrong");
+    });
+    submit.disabled = true;
+    finishAnswer(ex, idx, correct);
   });
 }
 
-function recordProblem(unitId, idx, isCorrect) {
+/* 並べ替え */
+function renderOrder(ex, idx, body) {
+  const tokens = shuffle(ex.tokens);
+  body.innerHTML = `
+    <p class="ex-q">${escapeHtml(ex.q)}</p>
+    <div class="order-answer" id="orderAnswer" aria-label="解答欄"></div>
+    <div class="order-tokens" id="orderTokens">
+      ${tokens.map((t) => `<button class="token" data-token="${escapeHtml(t)}" type="button">${escapeHtml(t)}</button>`).join("")}
+    </div>
+    <div class="ex-actions">
+      <button class="btn small" id="orderClear" type="button">クリア</button>
+      <button class="btn primary small" id="orderCheck" type="button">解答する</button>
+    </div>`;
+  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+
+  const answerBox = document.getElementById("orderAnswer");
+  const tokenBox = document.getElementById("orderTokens");
+  const picked = [];
+  function refresh() {
+    answerBox.innerHTML = picked
+      .map((t, i) => `<button class="token in-answer" data-remove="${i}" type="button">${escapeHtml(t)}</button>`)
+      .join("");
+    answerBox.querySelectorAll("[data-remove]").forEach((b) => {
+      b.addEventListener("click", () => {
+        if (session.answered) return;
+        const [tok] = picked.splice(Number(b.dataset.remove), 1);
+        const back = tokenBox.querySelector(`.token[data-token="${CSS.escape(tok)}"][hidden]`);
+        if (back) back.hidden = false;
+        refresh();
+      });
+    });
+  }
+  tokenBox.querySelectorAll(".token").forEach((b) => {
+    b.addEventListener("click", () => {
+      if (session.answered) return;
+      picked.push(b.dataset.token);
+      b.hidden = true;
+      refresh();
+    });
+  });
+  document.getElementById("orderClear").addEventListener("click", () => {
+    if (session.answered) return;
+    picked.length = 0;
+    tokenBox.querySelectorAll(".token").forEach((b) => (b.hidden = false));
+    refresh();
+  });
+  document.getElementById("orderCheck").addEventListener("click", () => {
+    if (session.answered) return;
+    if (picked.length !== ex.answer.length) {
+      answerBox.classList.add("shake");
+      setTimeout(() => answerBox.classList.remove("shake"), 400);
+      return;
+    }
+    const correct = picked.join(" ") === ex.answer.join(" ");
+    answerBox.innerHTML =
+      `<div class="order-result">あなたの解答：${escapeHtml(picked.join(" "))}</div>` +
+      `<div class="order-result correct-line">正解：${escapeHtml(ex.answer.join(" "))}</div>`;
+    finishAnswer(ex, idx, correct);
+  });
+}
+
+/* 入力式 */
+function renderInput(ex, idx, body) {
+  body.innerHTML = `
+    <p class="ex-q">${escapeHtml(ex.q)}</p>
+    <div class="input-row">
+      <input type="text" id="inputAnswer" class="text-input" placeholder="ここに入力" autocomplete="off" />
+    </div>
+    <div class="ex-actions">
+      <span class="ex-actions-spacer"></span>
+      <button class="btn primary" id="inputCheck" type="button">解答する</button>
+    </div>`;
+  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+  const input = document.getElementById("inputAnswer");
+  function check() {
+    if (session.answered) return;
+    const val = input.value.trim();
+    if (!val) {
+      input.classList.add("shake");
+      setTimeout(() => input.classList.remove("shake"), 400);
+      return;
+    }
+    const norm = (s) => s.toLowerCase().replace(/\s+/g, " ").replace(/[.．。、,]/g, "").trim();
+    const correct = ex.answers.some((a) => norm(a) === norm(val));
+    input.disabled = true;
+    input.classList.add(correct ? "correct" : "wrong");
+    if (!correct) input.parentElement.after(el(`<p class="input-correct">正解例：${escapeHtml(ex.answers[0])}</p>`));
+    finishAnswer(ex, idx, correct);
+  }
+  document.getElementById("inputCheck").addEventListener("click", check);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") check();
+  });
+  input.focus();
+}
+
+/* 品詞識別（label）: 各まとまりに S/V/O/C/M を割り当て */
+const LABEL_OPTS = ["S", "V", "O", "C", "M"];
+const LABEL_DESC = { S: "主語", V: "動詞", O: "目的語", C: "補語", M: "修飾語" };
+function renderLabel(ex, idx, body) {
+  const picks = new Array(ex.chunks.length).fill(null);
+  body.innerHTML = `
+    <p class="ex-q">${escapeHtml(ex.instruction || "各まとまりに文の要素 S/V/O/C/M を割り当てよう。")}</p>
+    <p class="label-sentence">${escapeHtml(ex.sentence)}</p>
+    <div class="label-legend">${LABEL_OPTS.map((l) => `<span><b>${l}</b>＝${LABEL_DESC[l]}</span>`).join("")}</div>
+    <div class="label-board">
+      ${ex.chunks
+        .map(
+          (c, ci) => `
+        <div class="label-chunk" data-ci="${ci}">
+          <span class="chunk-text">${escapeHtml(c)}</span>
+          <div class="label-opts">
+            ${LABEL_OPTS.map((l) => `<button class="label-opt" data-ci="${ci}" data-label="${l}" type="button">${l}</button>`).join("")}
+          </div>
+        </div>`
+        )
+        .join("")}
+    </div>
+    <div class="ex-actions">
+      <span class="ex-actions-spacer"></span>
+      <button class="btn primary" id="labelCheck" type="button">解答する</button>
+    </div>`;
+  body.querySelector(".ex-actions").prepend(dontKnowButton(ex, idx));
+
+  body.querySelectorAll(".label-opt").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if (session.answered) return;
+      const ci = Number(btn.dataset.ci);
+      picks[ci] = btn.dataset.label;
+      body.querySelectorAll(`.label-opt[data-ci="${ci}"]`).forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+  document.getElementById("labelCheck").addEventListener("click", () => {
+    if (session.answered) return;
+    if (picks.some((p) => p === null)) {
+      body.querySelector(".label-board").classList.add("shake");
+      setTimeout(() => body.querySelector(".label-board").classList.remove("shake"), 400);
+      return;
+    }
+    let allCorrect = true;
+    ex.chunks.forEach((c, ci) => {
+      const chunkEl = body.querySelector(`.label-chunk[data-ci="${ci}"]`);
+      const ok = picks[ci] === ex.labels[ci];
+      if (!ok) allCorrect = false;
+      chunkEl.classList.add(ok ? "chunk-ok" : "chunk-ng");
+      chunkEl.querySelectorAll(".label-opt").forEach((b) => {
+        b.disabled = true;
+        if (b.dataset.label === ex.labels[ci]) b.classList.add("correct");
+        if (b.dataset.label === picks[ci] && !ok) b.classList.add("wrong");
+      });
+      chunkEl.insertAdjacentHTML(
+        "beforeend",
+        `<span class="chunk-judge">${ok ? "⭕" : "❌ 正解 " + ex.labels[ci]}</span>`
+      );
+    });
+    finishAnswer(ex, idx, allCorrect);
+  });
+}
+
+/* ステップ型読解（steps）: 英文 → サブステップ → 設問 */
+function renderSteps(ex, idx, body) {
+  if (!session.sub || session.sub.itemIdx !== idx) {
+    session.sub = { itemIdx: idx, pos: 0, log: [] };
+  }
+  const sub = session.sub;
+  const stepsDone = sub.log
+    .map(
+      (l, i) =>
+        `<div class="step-done-row"><span class="step-done-no">STEP${i + 1}</span>
+         <span class="${l.correct ? "sd-ok" : "sd-ng"}">${l.correct ? "⭕" : "❌"} ${escapeHtml(l.chosen)}</span></div>`
+    )
+    .join("");
+
+  body.innerHTML = `
+    <p class="ex-q">${escapeHtml(ex.instruction || "ステップを踏んでから設問に答えよう。")}</p>
+    <div class="passage-box">${escapeHtml(ex.passage)}</div>
+    <div class="steps-log">${stepsDone}</div>
+    <div id="stepArea"></div>`;
+  const area = document.getElementById("stepArea");
+
+  if (sub.pos < ex.steps.length) {
+    // サブステップ出題
+    const step = ex.steps[sub.pos];
+    area.innerHTML = `
+      <div class="substep">
+        <span class="substep-tag">STEP ${sub.pos + 1} / ${ex.steps.length}</span>
+        <p class="ex-q">${escapeHtml(step.q)}</p>
+        <div class="choices">
+          ${step.choices.map((c, i) => `<button class="choice-btn" data-sc="${i}" type="button"><span class="choice-no">${i + 1}</span>${escapeHtml(c)}</button>`).join("")}
+        </div>
+        <div class="substep-feedback" id="substepFb" hidden></div>
+        <button class="btn primary wide" id="stepNext" type="button" hidden>次のステップへ →</button>
+      </div>`;
+    const fb = document.getElementById("substepFb");
+    const nextBtn = document.getElementById("stepNext");
+    let stepAnswered = false;
+    area.querySelectorAll(".choice-btn").forEach((btn, i) => {
+      btn.addEventListener("click", () => {
+        if (stepAnswered) return;
+        stepAnswered = true;
+        const ok = i === step.answer;
+        area.querySelectorAll(".choice-btn").forEach((b, bi) => {
+          b.disabled = true;
+          if (bi === step.answer) b.classList.add("correct");
+          if (bi === i && !ok) b.classList.add("wrong");
+        });
+        sub.log.push({ correct: ok, chosen: step.choices[i] });
+        fb.hidden = false;
+        fb.className = "substep-feedback " + (ok ? "ok" : "ng");
+        fb.innerHTML = `<strong>${ok ? "⭕ そのとおり" : "❌ ちがいます"}</strong><p>${escapeHtml(step.hint || "")}</p>`;
+        nextBtn.hidden = false;
+        nextBtn.textContent = sub.pos + 1 >= ex.steps.length ? "設問に進む →" : "次のステップへ →";
+        nextBtn.focus();
+      });
+    });
+    nextBtn.addEventListener("click", () => {
+      sub.pos++;
+      renderSteps(ex, idx, body);
+    });
+  } else {
+    // 本設問（解答確定フロー）
+    area.innerHTML = `
+      <div class="substep main-q">
+        <span class="substep-tag main">設問</span>
+        <p class="ex-q">${escapeHtml(ex.main.q)}</p>
+        <div class="choices">
+          ${ex.main.choices.map((c, i) => `<button class="choice-btn" data-mc="${i}" type="button"><span class="choice-no">${i + 1}</span>${escapeHtml(c)}</button>`).join("")}
+        </div>
+        <div class="ex-actions">
+          <span class="ex-actions-spacer"></span>
+          <button class="btn primary" id="stepsSubmit" type="button" disabled>解答する</button>
+        </div>
+      </div>`;
+    area.querySelector(".ex-actions").prepend(dontKnowButton(ex.main, idx));
+    let selected = -1;
+    const submit = document.getElementById("stepsSubmit");
+    area.querySelectorAll(".choice-btn").forEach((btn, i) => {
+      btn.addEventListener("click", () => {
+        if (session.answered) return;
+        selected = i;
+        area.querySelectorAll(".choice-btn").forEach((b) => b.classList.remove("selected"));
+        btn.classList.add("selected");
+        submit.disabled = false;
+      });
+    });
+    submit.addEventListener("click", () => {
+      if (session.answered || selected < 0) return;
+      const correct = selected === ex.main.answer;
+      area.querySelectorAll(".choice-btn").forEach((b, bi) => {
+        b.disabled = true;
+        if (bi === ex.main.answer) b.classList.add("correct");
+        if (bi === selected && !correct) b.classList.add("wrong");
+      });
+      submit.disabled = true;
+      finishAnswer(ex.main, idx, correct);
+    });
+  }
+
+}
+
+function recordProblem(unitId, idx, isCorrect, dontKnow) {
   const key = problemKey(unitId, idx);
-  const p = progress.problems[key] || { wrongCount: 0, rightCount: 0, last: null };
+  const p = progress.problems[key] || { wrongCount: 0, rightCount: 0, dkCount: 0, last: null };
   if (isCorrect) p.rightCount++;
   else p.wrongCount++;
+  if (dontKnow) p.dkCount = (p.dkCount || 0) + 1;
   p.last = isCorrect ? "right" : "wrong";
   progress.problems[key] = p;
   saveProgress();
@@ -599,6 +863,7 @@ function renderExerciseResult(unitId) {
   const { unit, stage } = getUnit(unitId);
   const total = session.items.length;
   const score = Math.round((session.correct / total) * 100);
+  const elapsed = Date.now() - session.startTime;
   const st = unitState(unitId);
   st.attempts++;
   if (score > st.bestScore) st.bestScore = score;
@@ -614,9 +879,10 @@ function renderExerciseResult(unitId) {
   const reviewHtml = session.results
     .map((r) => {
       const ex = unit.exercises[r.idx];
-      const label = { choice: "選択", order: "並べ替え", input: "入力", pos: "品詞" }[ex.type];
-      return `<li class="${r.correct ? "ok" : "ng"}"><span>${r.correct ? "⭕" : "❌"}</span>
-        <span class="rev-q">[${label}] ${escapeHtml(ex.q || ex.sentence)}</span></li>`;
+      const label = { choice: "選択", order: "並べ替え", input: "入力", pos: "品詞", label: "品詞識別", steps: "読解" }[ex.type];
+      const q = ex.type === "steps" ? ex.main.q : ex.q || ex.sentence;
+      const mark = r.correct ? "⭕" : r.dontKnow ? "❓" : "❌";
+      return `<li class="${r.correct ? "ok" : "ng"}"><span>${mark}</span><span class="rev-q">[${label}] ${escapeHtml(q)}</span></li>`;
     })
     .join("");
 
@@ -626,19 +892,18 @@ function renderExerciseResult(unitId) {
         <span class="panel-tag">✏️ 演習結果</span>
         <h1>${unit.title}</h1>
         <div class="result-score" style="--c:${m.color}">
-          <div class="result-ring" style="--p:${score}">
-            <span>${score}<small>%</small></span>
-          </div>
+          <div class="result-ring" style="--p:${score}"><span>${score}<small>%</small></span></div>
           <div class="result-meta">
             <p class="result-line">正解 <strong>${session.correct} / ${total}</strong></p>
+            <p class="result-line">所要時間 <strong>${fmtTime(elapsed)}</strong></p>
             <p class="result-line">習熟レベル：<span class="mastery-badge" style="background:${m.color}">${m.label}</span></p>
             <p class="result-line">${medal ? medal.emoji + " " + medal.label + " 獲得！" : "全問正解で銀メダル"}</p>
           </div>
         </div>
         ${
           isPerfect
-            ? `<p class="result-congrats">🎉 全問正解！この調子でもう1周すると金メダルです。</p>`
-            : `<p class="result-note">間違えた問題は「習熟状況」で復習できます。もう一度挑戦して習熟を上げましょう。</p>`
+            ? `<p class="result-congrats">🎉 全問正解！もう1周すると上位メダルに挑戦できます。</p>`
+            : `<p class="result-note">間違えた問題・「わからない」とした問題は「習熟状況」で復習できます。</p>`
         }
         <ul class="result-review">${reviewHtml}</ul>
         <div class="result-actions">
@@ -682,16 +947,21 @@ function renderStatus() {
       </div>`;
   }).join("");
 
-  // 苦手・うろ覚えリスト
-  const weak = [];
-  const vague = [];
+  // 記憶度の集計（覚えた/うろ覚え/苦手/未判定）と苦手・うろ覚えリスト
+  const weak = [],
+    vague = [];
+  let learnedCount = 0,
+    undecidedCount = 0;
   CURRICULUM.forEach((stage) => {
     stage.units.forEach((u) => {
       u.exercises.forEach((ex, idx) => {
         const s = problemStatus(u.id, idx);
-        const entry = { unitId: u.id, unitTitle: u.title, stage: stage.stage, q: ex.q || ex.sentence, type: ex.type };
+        const q = ex.type === "steps" ? ex.main.q : ex.q || ex.sentence;
+        const entry = { unitId: u.id, unitTitle: u.title, stage: stage.stage, q };
         if (s === "weak") weak.push(entry);
         else if (s === "vague") vague.push(entry);
+        else if (s === "learned") learnedCount++;
+        else undecidedCount++;
       });
     });
   });
@@ -743,8 +1013,10 @@ function renderStatus() {
         <div class="summary-card"><span class="summary-num">${medalCount.shiny}</span><span>🌟 シャイニー</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.gold}</span><span>🥇 金メダル</span></div>
         <div class="summary-card"><span class="summary-num">${medalCount.silver}</span><span>🥈 銀メダル</span></div>
-        <div class="summary-card"><span class="summary-num">${weak.length}</span><span>🔴 苦手</span></div>
+        <div class="summary-card"><span class="summary-num">${learnedCount}</span><span>🟢 覚えた</span></div>
         <div class="summary-card"><span class="summary-num">${vague.length}</span><span>🟡 うろ覚え</span></div>
+        <div class="summary-card"><span class="summary-num">${weak.length}</span><span>🔴 苦手</span></div>
+        <div class="summary-card"><span class="summary-num">${undecidedCount}</span><span>⚪ 未判定</span></div>
       </div>
 
       <h2 class="section-title">🔁 復習推奨の単元</h2>
@@ -753,7 +1025,7 @@ function renderStatus() {
       <h2 class="section-title">区分・単元ごとの習熟</h2>
       <div class="status-stages">${stagesHtml}</div>
 
-      <h2 class="section-title">🔴 苦手な問題（直近で不正解）</h2>
+      <h2 class="section-title">🔴 苦手な問題（直近で不正解・わからない）</h2>
       <div class="recall-list">${listHtml(weak, STATUS_META.weak)}</div>
 
       <h2 class="section-title">🟡 うろ覚えの問題（間違えた経験あり）</h2>
@@ -767,9 +1039,18 @@ function renderStatus() {
 
 /* ---------- イベント委譲 ---------- */
 document.addEventListener("click", (e) => {
-  const t = e.target.closest("[data-nav],[data-go-stage],[data-go-unit],[data-step],[data-mode],[data-diag],[data-lecture-done],[data-retry],#homeBtn,#resetBtn");
+  const t = e.target.closest(
+    "[data-nav],[data-go-stage],[data-go-unit],[data-step],[data-mode],[data-diag],[data-lecture-done],[data-retry],#homeBtn,#resetBtn,#exNext"
+  );
   if (!t) return;
 
+  if (t.id === "exNext") {
+    if (!session) return;
+    session.pos++;
+    session.answered = false;
+    session.sub = { pos: 0, log: [] };
+    return renderExercise(session.unitId);
+  }
   if (t.id === "homeBtn") return navigate("home");
   if (t.id === "resetBtn") {
     if (confirm("学習データ（習熟・メダル・記憶度）をすべて消去します。よろしいですか？")) {
@@ -792,6 +1073,7 @@ document.addEventListener("click", (e) => {
     return renderHome();
   }
   if (t.dataset.step) {
+    if (t.disabled) return;
     return navigate(t.dataset.step, { unitId: route.unitId });
   }
   if (t.dataset.diag) {

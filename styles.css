@@ -342,7 +342,7 @@ button { font-family: inherit; cursor: pointer; }
 
 /* ===== 習熟状況 ===== */
 .status-summary {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin: 14px 0 6px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(98px, 1fr)); gap: 10px; margin: 14px 0 6px;
 }
 .summary-card {
   background: var(--card); border: 1px solid var(--line); border-radius: 12px;
@@ -386,4 +386,123 @@ button { font-family: inherit; cursor: pointer; }
   .status-summary { grid-template-columns: repeat(3, 1fr); }
   .result-meta { text-align: center; }
   .hero { padding: 32px 0 28px; }
+  .label-chunk { flex-direction: column; align-items: flex-start; }
 }
+
+/* ===== 難易度（+++ / 基礎・標準・発展） ===== */
+.tier-mark {
+  font-size: 0.72rem; font-weight: 800; color: #9aa6b2; letter-spacing: 1px;
+  vertical-align: middle;
+}
+.tier-mark.big { font-size: 0.9rem; color: #b6c0cb; }
+.tier-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+.tier-chip {
+  font-size: 0.74rem; font-weight: 700; color: var(--c);
+  border: 1.5px solid var(--c); border-radius: 999px; padding: 2px 11px;
+}
+.diff-badge {
+  font-size: 0.7rem; font-weight: 700; color: #fff;
+  padding: 2px 10px; border-radius: 999px;
+}
+
+/* ===== ステップカードのロック ===== */
+.step-card.locked { opacity: 0.55; cursor: not-allowed; }
+.step-card.locked:hover { transform: none; border-color: var(--line); }
+.step-lock { font-size: 0.68rem; background: #9aa6b2; color: #fff; padding: 1px 8px; border-radius: 999px; }
+
+/* ===== 演習: 進捗・タイマー ===== */
+.ex-counter { font-size: 0.8rem; color: var(--ink-soft); font-weight: 700; white-space: nowrap; }
+.ex-timer { font-size: 0.8rem; color: var(--ink-soft); white-space: nowrap; }
+.ex-correct { font-size: 0.74rem; color: var(--ink-faint); margin-left: auto; }
+.ex-head { gap: 8px; flex-wrap: wrap; }
+
+/* ===== 選択肢（番号バッジ＋選択状態） ===== */
+.choice-no {
+  display: inline-grid; place-items: center; width: 22px; height: 22px;
+  background: #2a3340; color: #fff; border-radius: 5px; font-size: 0.78rem;
+  font-weight: 800; margin-right: 10px; flex-shrink: 0;
+}
+.choice-btn { display: flex; align-items: center; }
+.choice-btn.selected { border-color: var(--accent); background: #eef3ff; box-shadow: 0 0 0 3px rgba(47,111,237,0.12); }
+.choice-btn.correct .choice-no { background: var(--ok); }
+.choice-btn.wrong .choice-no { background: var(--ng); }
+
+/* ===== 演習アクション行（わからない / 解答する） ===== */
+.ex-actions { display: flex; align-items: center; gap: 10px; margin-top: 16px; }
+.ex-actions-spacer { flex: 1; }
+.dk-btn { border: 1.5px dashed var(--line); color: var(--ink-soft); }
+.dk-btn:hover { background: #fff7ed; border-color: #f0c98a; color: #b45309; }
+
+/* ===== 構造化解説 ===== */
+.exp-block { margin-top: 10px; }
+.exp-label {
+  display: inline-block; font-size: 0.72rem; font-weight: 800;
+  background: var(--ink); color: #fff; padding: 2px 10px; border-radius: 999px; margin-bottom: 5px;
+}
+.ex-feedback.ng .exp-label { background: var(--ng); }
+.ex-feedback.ok .exp-label { background: var(--ok); }
+.exp-block p { font-size: 0.87rem; color: var(--ink-soft); }
+.exp-points { margin: 4px 0 0 1.2em; }
+.exp-points li { font-size: 0.86rem; color: var(--ink-soft); margin-bottom: 3px; }
+.exp-more {
+  margin-top: 10px; background: rgba(255,255,255,0.6); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 12px;
+}
+.exp-more summary { font-size: 0.83rem; font-weight: 700; cursor: pointer; color: var(--accent); }
+.exp-more p { font-size: 0.85rem; color: var(--ink-soft); margin-top: 8px; }
+
+/* ===== 品詞識別（label） ===== */
+.label-sentence {
+  font-size: 1.1rem; background: var(--bg); padding: 12px 16px; border-radius: 10px;
+  margin-bottom: 8px; font-weight: 600;
+}
+.label-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 0.76rem; color: var(--ink-faint); margin-bottom: 12px; }
+.label-legend b { color: var(--accent); }
+.label-board { display: flex; flex-direction: column; gap: 8px; }
+.label-board.shake { animation: shake 0.4s; }
+.label-chunk {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 10px; padding: 10px 14px;
+}
+.label-chunk.chunk-ok { border-color: var(--ok); background: #f0faf3; }
+.label-chunk.chunk-ng { border-color: var(--ng); background: #fdf1f1; }
+.chunk-text { font-size: 0.96rem; font-weight: 700; min-width: 90px; }
+.label-opts { display: flex; gap: 5px; }
+.label-opt {
+  width: 34px; height: 34px; border: 1.5px solid var(--line); background: var(--card);
+  border-radius: 8px; font-weight: 800; font-size: 0.85rem; color: var(--ink-soft);
+}
+.label-opt:hover:not(:disabled) { border-color: var(--accent); }
+.label-opt.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+.label-opt.correct { border-color: var(--ok); color: var(--ok); }
+.label-opt.selected.correct { background: var(--ok); color: #fff; }
+.label-opt.wrong { border-color: var(--ng); background: var(--ng); color: #fff; }
+.chunk-judge { font-size: 0.8rem; font-weight: 700; color: var(--ink-soft); }
+
+/* ===== ステップ型読解（steps） ===== */
+.passage-box {
+  background: #f0f4fb; border: 1px solid #d5e0f0; border-left: 4px solid var(--accent);
+  border-radius: 0 10px 10px 0; padding: 14px 16px; font-size: 0.95rem; line-height: 1.95;
+  margin-bottom: 12px;
+}
+.steps-log { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.step-done-row { display: flex; gap: 10px; align-items: center; font-size: 0.82rem; }
+.step-done-no {
+  font-size: 0.68rem; font-weight: 800; background: var(--bg); color: var(--ink-soft);
+  padding: 2px 8px; border-radius: 999px;
+}
+.sd-ok { color: var(--ok); }
+.sd-ng { color: var(--ng); }
+.substep { border-top: 1px dashed var(--line); padding-top: 14px; }
+.substep-tag {
+  display: inline-block; font-size: 0.72rem; font-weight: 800;
+  background: #e8f0fe; color: var(--accent-dark); padding: 2px 11px; border-radius: 999px; margin-bottom: 8px;
+}
+.substep-tag.main { background: var(--accent-dark); color: #fff; }
+.substep-feedback { margin-top: 12px; padding: 12px 14px; border-radius: 10px; font-size: 0.86rem; }
+.substep-feedback.ok { background: #eafaf0; border: 1px solid #b6e6c8; }
+.substep-feedback.ng { background: #fff7f0; border: 1px solid #f0d4b8; }
+.substep-feedback strong { display: block; margin-bottom: 3px; }
+.substep-feedback p { color: var(--ink-soft); }
+
+.text-input.shake { animation: shake 0.4s; }
